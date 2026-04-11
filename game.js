@@ -23,6 +23,7 @@ const dialogueState = {
   index: 0,
   talkedNPCs: new Set(),
 };
+let objectiveText = '';
 
 window.addEventListener('load', init);
 
@@ -71,7 +72,11 @@ function init() {
   });
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('click', () => {
-    if (gameStarted && document.pointerLockElement !== renderer.domElement) {
+    if (
+      gameStarted &&
+      renderer?.domElement?.requestPointerLock &&
+      document.pointerLockElement !== renderer.domElement
+    ) {
       renderer.domElement.requestPointerLock();
     }
   });
@@ -160,6 +165,13 @@ function buildTown() {
   }
 }
 
+function createCapsuleGeometry(radius, length, capSegments = 6, radialSegments = 10) {
+  if (typeof THREE.CapsuleGeometry === 'function') {
+    return new THREE.CapsuleGeometry(radius, length, capSegments, radialSegments);
+  }
+  return new THREE.CylinderGeometry(radius, radius, length + radius * 2, radialSegments);
+}
+
 function createCharacterMaterials(role) {
   const palettes = {
     beast: { skin: 0xf0cfa3, body: 0x607d3b, cloth: 0x3f4f2a, weapon: 0xb0b6bf, glow: 0xd5ff8e },
@@ -188,7 +200,7 @@ function buildHumanoid(role, withWeapon = true) {
   const group = new THREE.Group();
   const mats = createCharacterMaterials(role);
 
-  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.33, 0.75, 8, 16), mats.body);
+  const torso = new THREE.Mesh(createCapsuleGeometry(0.33, 0.75, 8, 16), mats.body);
   torso.position.y = 0.95;
   torso.castShadow = true;
   group.add(torso);
@@ -211,7 +223,7 @@ function buildHumanoid(role, withWeapon = true) {
   rightEye.position.set(0.08, 1.7, 0.21);
   group.add(leftEye, rightEye);
 
-  const armGeo = new THREE.CapsuleGeometry(0.1, 0.55, 6, 10);
+  const armGeo = createCapsuleGeometry(0.1, 0.55, 6, 10);
   const leftArm = new THREE.Mesh(armGeo, mats.skin);
   leftArm.position.set(-0.45, 1.05, 0);
   leftArm.rotation.z = 0.18;
@@ -228,7 +240,7 @@ function buildHumanoid(role, withWeapon = true) {
   rightArm.castShadow = true;
   rightArmAnchor.add(rightArm);
 
-  const legGeo = new THREE.CapsuleGeometry(0.11, 0.65, 6, 10);
+  const legGeo = createCapsuleGeometry(0.11, 0.65, 6, 10);
   const leftLeg = new THREE.Mesh(legGeo, mats.cloth);
   const rightLeg = new THREE.Mesh(legGeo, mats.cloth);
   leftLeg.position.set(-0.16, 0.35, 0.01);
@@ -573,7 +585,9 @@ function selectClass(type) {
   if (!gameStarted) {
     gameStarted = true;
     animate();
-    renderer.domElement.requestPointerLock();
+    if (renderer.domElement.requestPointerLock) {
+      renderer.domElement.requestPointerLock();
+    }
   }
 }
 
@@ -625,7 +639,9 @@ function updateEnemyCounter() {
 
 function updateObjective(text) {
   const elem = document.getElementById('objective');
-  if (elem) elem.textContent = `Objective: ${text}`;
+  if (!elem || objectiveText === text) return;
+  objectiveText = text;
+  elem.textContent = `Objective: ${text}`;
 }
 
 function onWindowResize() {
