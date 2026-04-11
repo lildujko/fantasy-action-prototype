@@ -4,12 +4,29 @@ let keys = {};
 let npcs = [];
 let zombies = [];
 let ores = [];
-
+let buildings = [];
+let doors = [];
+let collisionBoxes = [];
 let selectedClass = null;
 let messageTimer = 0;
-let cameraYaw = 0;
-let cameraPitch = 0.35;
-const mouseSensitivity = 0.0025;
+let uiPanelOpen = false;
+
+const mouseLook = {
+  yaw: 0,
+  pitch: 0.28,
+  distance: 8.8
+};
+
+const hotbar = {
+  active: 1,
+  slots: {
+    1: "Sword",
+    2: "Pickaxe",
+    3: "Katana",
+    4: "Empty",
+    5: "Empty"
+  }
+};
 
 const state = {
   money: 0,
@@ -17,9 +34,9 @@ const state = {
   maxHealth: 100,
   hasPickaxe: false,
   iron: 0,
-  weapon: "None",
+  weapon: "Sword",
   weaponDamage: 8,
-  hasIronSword: false,
+  ownsKatana: false,
   questAccepted: false,
   questComplete: false
 };
@@ -34,9 +51,11 @@ function startGame(type) {
 function init() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x7ea2c9);
-  scene.fog = new THREE.Fog(0x7ea2c9, 40, 140);
+  scene.fog = new THREE.Fog(0x7ea2c9, 40, 120);
 
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 300);
+  camera.position.set(0, 8, 12);
+
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
@@ -51,18 +70,21 @@ function init() {
   spawnStartingZombies();
 
   updateHUD();
-  showMessage("You arrived in town. Click the game to lock the camera.");
+  updateHotbar();
+  showMessage("You arrived in town.");
+  bindEvents();
+}
 
+function bindEvents() {
   window.addEventListener("resize", onResize);
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("keyup", onKeyUp);
-  renderer.domElement.addEventListener("click", onCanvasClick);
   document.addEventListener("mousemove", onMouseMove);
   document.addEventListener("mousedown", onMouseDown);
 }
 
 function setupLights() {
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x334155, 1.25);
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x334155, 1.2);
   scene.add(hemi);
 
   const sun = new THREE.DirectionalLight(0xffffff, 1.15);
@@ -99,10 +121,10 @@ function createGround() {
 }
 
 function createTown() {
-  createBuilding(-12, -9, 10, 8, 0x8b5e3c, "WEAPONS");
-  createBuilding(12, -9, 10, 8, 0x7b5537, "ARMOR");
-  createBuilding(-12, 9, 10, 8, 0x6f4a2f, "SUPPLIES");
-  createBuilding(12, 9, 10, 8, 0x50545c, "FORGE");
+  createBuilding(-12, -9, 10, 8, 0x8b5e3c, "Weapon Shop", "weapon");
+  createBuilding(12, -9, 10, 8, 0x7b5537, "Armor Shop", "armor");
+  createBuilding(-12, 9, 10, 8, 0x6f4a2f, "Item Shop", "item");
+  createBuilding(12, 9, 10, 8, 0x50545c, "Forge", "forge");
 
   createGate(0, -19);
 
@@ -118,7 +140,7 @@ function createTown() {
   createLamp(16, 0);
 }
 
-function createBuilding(x, z, w, d, color, label) {
+function createBuilding(x, z, w, d, color, label, role) {
   const body = new THREE.Mesh(
     new THREE.BoxGeometry(w, 6, d),
     new THREE.MeshStandardMaterial({ color })
@@ -134,38 +156,51 @@ function createBuilding(x, z, w, d, color, label) {
   roof.rotation.y = Math.PI * 0.25;
   scene.add(roof);
 
-  const signBoard = new THREE.Mesh(
-    new THREE.BoxGeometry(5.4, 1.5, 0.25),
-    new THREE.MeshStandardMaterial({ color: 0xe5c07b })
-  );
-  signBoard.position.set(x, 4.7, z - d / 2 - 0.32);
-  scene.add(signBoard);
+  const sign = createStaticSign(label);
+  sign.position.set(x, 4.7, z - d / 2 - 0.45);
+  scene.add(sign);
 
-  const signText = makeTextSprite(label);
-  signText.position.set(x, 4.72, z - d / 2 - 0.48);
-  signText.scale.set(4.8, 1.2, 1);
-  scene.add(signText);
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(1.45, 2.6, 0.22),
+    new THREE.MeshStandardMaterial({ color: 0x4b2e1a })
+  );
+  door.position.set(x, 1.3, z - d / 2 - 0.11);
+  scene.add(door);
+
+  buildings.push({ x, z, w, d, role });
+  doors.push({
+    mesh: door,
+    role,
+    label,
+    position: new THREE.Vector3(x, 0, z - d / 2 - 1.4)
+  });
+
+  // main building collision
+  collisionBoxes.push(new THREE.Box3(
+    new THREE.Vector3(x - w / 2, 0, z - d / 2),
+    new THREE.Vector3(x + w / 2, 6, z + d / 2)
+  ));
 }
 
-function makeTextSprite(text) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#f5deb3';
+function createStaticSign(label) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f2d39b";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = '#4b2e12';
+  ctx.strokeStyle = "#6b4423";
   ctx.lineWidth = 8;
   ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
-  ctx.fillStyle = '#2a1a0b';
-  ctx.font = 'bold 54px Arial';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  ctx.fillStyle = "#2f2418";
+  ctx.font = "bold 28px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, canvas.width / 2, canvas.height / 2);
 
   const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-  return new THREE.Sprite(material);
+  const mat = new THREE.MeshBasicMaterial({ map: texture });
+  return new THREE.Mesh(new THREE.PlaneGeometry(4.6, 1.7), mat);
 }
 
 function createGate(x, z) {
@@ -186,6 +221,15 @@ function createGate(x, z) {
   );
   top.position.set(x, 8, z);
   scene.add(top);
+
+  collisionBoxes.push(new THREE.Box3(
+    new THREE.Vector3(x - 5, 0, z - 1),
+    new THREE.Vector3(x - 3, 8, z + 1)
+  ));
+  collisionBoxes.push(new THREE.Box3(
+    new THREE.Vector3(x + 3, 0, z - 1),
+    new THREE.Vector3(x + 5, 8, z + 1)
+  ));
 }
 
 function createLamp(x, z) {
@@ -263,7 +307,7 @@ function createNPC(name, x, z, color, role) {
 
   group.position.set(x, 0, z);
   scene.add(group);
-  npcs.push({ name, role, mesh: group, cooldown: 0 });
+  npcs.push({ name, role, mesh: group });
 }
 
 function createPlayer(playerClass) {
@@ -355,67 +399,58 @@ function createPlayer(playerClass) {
     group.add(snout);
   }
 
-  const weaponGroup = createVisibleWeapon();
-  weaponGroup.position.set(0.92, 1.18, 0.02);
-  weaponGroup.rotation.z = -0.2;
-  group.add(weaponGroup);
+  const sword = createSword();
+  sword.position.set(0.92, 1.2, 0);
+  group.add(sword);
 
-  const pickaxeGroup = createPickaxe();
-  pickaxeGroup.position.set(-0.95, 1.15, 0.02);
-  pickaxeGroup.visible = false;
-  group.add(pickaxeGroup);
+  const pickaxe = createPickaxe();
+  pickaxe.position.set(0.92, 1.2, 0);
+  pickaxe.visible = false;
+  group.add(pickaxe);
 
   group.position.set(0, 0, 0);
   scene.add(group);
 
   return {
     mesh: group,
-    weaponMesh: weaponGroup,
-    pickaxeMesh: pickaxeGroup,
-    moveSpeed: 5.0,
-    sprintSpeed: 8.5,
+    swordMesh: sword,
+    pickaxeMesh: pickaxe,
+    moveSpeed: 4.2,
+    sprintSpeed: 7.0,
     attackTimer: 0,
     attackCooldown: 0,
     attacking: false,
-    justHit: new Set()
+    justHit: new Set(),
+    velocity: new THREE.Vector3()
   };
 }
 
-function createVisibleWeapon() {
+function createSword() {
   const group = new THREE.Group();
 
-  const handle = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.045, 0.05, 0.72, 10),
-    new THREE.MeshStandardMaterial({ color: 0x141414 })
-  );
-  handle.rotation.x = Math.PI / 2;
-  handle.position.z = -0.28;
-  group.add(handle);
-
-  const guard = new THREE.Mesh(
-    new THREE.TorusGeometry(0.11, 0.018, 8, 20),
-    new THREE.MeshStandardMaterial({ color: 0xc9a35a })
-  );
-  guard.rotation.y = Math.PI / 2;
-  group.add(guard);
-
   const blade = new THREE.Mesh(
-    new THREE.BoxGeometry(0.06, 0.02, 1.65),
-    new THREE.MeshStandardMaterial({ color: 0xd5d9de, metalness: 0.5, roughness: 0.3 })
+    new THREE.BoxGeometry(0.12, 0.12, 2.0),
+    new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.6, roughness: 0.3 })
   );
-  blade.position.z = 0.9;
-  blade.rotation.x = -0.08;
-  blade.rotation.y = 0.08;
+  blade.position.z = 0.95;
   group.add(blade);
 
-  const tip = new THREE.Mesh(
-    new THREE.ConeGeometry(0.04, 0.22, 10),
-    new THREE.MeshStandardMaterial({ color: 0xd5d9de, metalness: 0.5, roughness: 0.3 })
+  const guard = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.08, 0.16),
+    new THREE.MeshStandardMaterial({ color: 0x9ca3af })
   );
-  tip.position.z = 1.74;
-  tip.rotation.x = Math.PI / 2 - 0.08;
-  group.add(tip);
+  guard.position.z = -0.05;
+  group.add(guard);
 
+  const handle = new THREE.Mesh(
+    new THREE.BoxGeometry(0.12, 0.12, 0.55),
+    new THREE.MeshStandardMaterial({ color: 0x3f2a18 })
+  );
+  handle.position.z = -0.38;
+  group.add(handle);
+
+  group.rotation.x = Math.PI / 2;
+  group.rotation.z = 0.25;
   return group;
 }
 
@@ -423,33 +458,21 @@ function createPickaxe() {
   const group = new THREE.Group();
 
   const handle = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.05, 1.3, 8),
-    new THREE.MeshStandardMaterial({ color: 0x7a4d27 })
+    new THREE.CylinderGeometry(0.05, 0.05, 1.55, 10),
+    new THREE.MeshStandardMaterial({ color: 0x7c5a34 })
   );
-  handle.rotation.z = 0.35;
+  handle.rotation.z = 0.4;
   group.add(handle);
 
   const head = new THREE.Mesh(
-    new THREE.BoxGeometry(0.6, 0.12, 0.12),
-    new THREE.MeshStandardMaterial({ color: 0x8b949e })
+    new THREE.BoxGeometry(0.75, 0.12, 0.14),
+    new THREE.MeshStandardMaterial({ color: 0x9ca3af })
   );
-  head.position.set(0.24, 0.56, 0);
-  head.rotation.z = 0.35;
+  head.position.set(0.26, 0.56, 0);
+  head.rotation.z = 0.4;
   group.add(head);
 
-  const spikeLeft = new THREE.Mesh(
-    new THREE.ConeGeometry(0.07, 0.28, 8),
-    new THREE.MeshStandardMaterial({ color: 0x8b949e })
-  );
-  spikeLeft.position.set(-0.04, 0.56, 0);
-  spikeLeft.rotation.z = Math.PI / 2 + 0.35;
-  group.add(spikeLeft);
-
-  const spikeRight = spikeLeft.clone();
-  spikeRight.position.x = 0.52;
-  spikeRight.rotation.z = -Math.PI / 2 + 0.35;
-  group.add(spikeRight);
-
+  group.scale.set(1.1, 1.1, 1.1);
   return group;
 }
 
@@ -550,28 +573,15 @@ function onResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function onCanvasClick() {
-  if (document.pointerLockElement !== renderer.domElement) {
-    renderer.domElement.requestPointerLock();
-  }
-}
-
-function onMouseMove(e) {
-  if (document.pointerLockElement !== renderer.domElement || !player) return;
-  cameraYaw -= e.movementX * mouseSensitivity;
-  cameraPitch -= e.movementY * mouseSensitivity;
-  cameraPitch = clamp(cameraPitch, -0.35, 0.75);
-}
-
-function onMouseDown(e) {
-  if (e.button === 0 && player && player.attackCooldown <= 0) {
-    beginAttack();
-  }
-}
-
 function onKeyDown(e) {
   const key = e.key.toLowerCase();
   keys[key] = true;
+
+  if (["1", "2", "3", "4", "5"].includes(key)) {
+    hotbar.active = Number(key);
+    updateHotbar();
+    applySelectedSlot();
+  }
 
   if (key === "e") tryInteract();
 }
@@ -580,75 +590,129 @@ function onKeyUp(e) {
   keys[e.key.toLowerCase()] = false;
 }
 
+function onMouseMove(e) {
+  if (uiPanelOpen) return;
+  mouseLook.yaw -= e.movementX * 0.0028;
+  mouseLook.pitch += e.movementY * 0.0018;
+  mouseLook.pitch = clamp(mouseLook.pitch, 0.08, 1.1);
+}
+
+function onMouseDown(e) {
+  if (uiPanelOpen) return;
+  if (e.button === 0 && player.attackCooldown <= 0) {
+    beginAttack();
+  }
+}
+
 function beginAttack() {
+  // only attack with combat weapons
+  if (hotbar.active === 2 && state.hasPickaxe) {
+    showMessage("Pickaxe equipped.");
+    return;
+  }
   player.attacking = true;
   player.attackTimer = 0.28;
-  player.attackCooldown = 0.45;
+  player.attackCooldown = 0.42;
   player.justHit.clear();
 }
 
 function updatePlayer(dt) {
-  const forward = new THREE.Vector3(Math.sin(cameraYaw), 0, Math.cos(cameraYaw) * -1);
-  const right = new THREE.Vector3(Math.cos(cameraYaw), 0, Math.sin(cameraYaw));
-  const move = new THREE.Vector3();
+  if (uiPanelOpen) return;
 
-  if (keys["w"]) move.add(forward);
-  if (keys["s"]) move.sub(forward);
-  if (keys["a"]) move.sub(right);
-  if (keys["d"]) move.add(right);
+  const input = new THREE.Vector3();
+  if (keys["w"]) input.z -= 1;
+  if (keys["s"]) input.z += 1;
+  if (keys["a"]) input.x -= 1;
+  if (keys["d"]) input.x += 1;
 
-  if (move.lengthSq() > 0) {
-    move.normalize();
+  let desiredVelocity = new THREE.Vector3();
+  if (input.lengthSq() > 0) {
+    input.normalize();
+
+    const forward = new THREE.Vector3(Math.sin(mouseLook.yaw), 0, Math.cos(mouseLook.yaw));
+    const right = new THREE.Vector3(forward.z, 0, -forward.x);
+
+    desiredVelocity.addScaledVector(forward, -input.z);
+    desiredVelocity.addScaledVector(right, input.x);
+    desiredVelocity.normalize();
+
     const speed = keys["shift"] ? player.sprintSpeed : player.moveSpeed;
-    player.mesh.position.addScaledVector(move, speed * dt);
-    player.mesh.rotation.y = Math.atan2(move.x, -move.z);
+    desiredVelocity.multiplyScalar(speed);
+
+    const faceAngle = Math.atan2(desiredVelocity.x, desiredVelocity.z);
+    player.mesh.rotation.y = faceAngle;
+  }
+
+  player.velocity.lerp(desiredVelocity, 0.16);
+  const nextPos = player.mesh.position.clone().addScaledVector(player.velocity, dt);
+
+  if (!intersectsBuilding(nextPos)) {
+    player.mesh.position.copy(nextPos);
+  } else {
+    // try axis-separated slide
+    const xOnly = player.mesh.position.clone();
+    xOnly.x += player.velocity.x * dt;
+    if (!intersectsBuilding(xOnly)) player.mesh.position.x = xOnly.x;
+
+    const zOnly = player.mesh.position.clone();
+    zOnly.z += player.velocity.z * dt;
+    if (!intersectsBuilding(zOnly)) player.mesh.position.z = zOnly.z;
   }
 
   if (player.attackCooldown > 0) player.attackCooldown -= dt;
 
   if (player.attacking) {
     player.attackTimer -= dt;
-    player.weaponMesh.rotation.z = -1.6 + (0.28 - Math.max(player.attackTimer, 0)) * 8.6;
-    player.weaponMesh.rotation.y = 0.18;
-    if (player.attackTimer > 0.08 && player.attackTimer < 0.22) {
-      hitZombies();
-    }
+    player.swordMesh.rotation.z = -1.5 + (0.28 - Math.max(player.attackTimer, 0)) * 8.5;
+    if (player.attackTimer > 0.08 && player.attackTimer < 0.22) hitZombies();
     if (player.attackTimer <= 0) {
       player.attacking = false;
-      player.weaponMesh.rotation.z = -0.2;
-      player.weaponMesh.rotation.y = 0;
+      player.swordMesh.rotation.z = 0.25;
     }
   }
-
-  player.pickaxeMesh.visible = state.hasPickaxe;
 
   player.mesh.position.x = clamp(player.mesh.position.x, -95, 95);
   player.mesh.position.z = clamp(player.mesh.position.z, -95, 95);
 
-  const distance = 7.5;
-  const height = 3.5 + Math.sin(cameraPitch) * 4.0;
-  const backOffset = new THREE.Vector3(
-    Math.sin(cameraYaw) * distance,
-    height,
-    Math.cos(cameraYaw) * distance
+  updateCamera();
+}
+
+function updateCamera() {
+  const target = new THREE.Vector3(
+    player.mesh.position.x,
+    player.mesh.position.y + 2.2,
+    player.mesh.position.z
   );
-  const target = new THREE.Vector3().copy(player.mesh.position).add(backOffset);
-  camera.position.lerp(target, 0.1);
-  camera.lookAt(player.mesh.position.x, player.mesh.position.y + 1.6, player.mesh.position.z);
+
+  const offset = new THREE.Vector3(
+    Math.sin(mouseLook.yaw) * Math.cos(mouseLook.pitch) * mouseLook.distance,
+    Math.sin(mouseLook.pitch) * mouseLook.distance + 1.5,
+    Math.cos(mouseLook.yaw) * Math.cos(mouseLook.pitch) * mouseLook.distance
+  );
+
+  const desired = target.clone().add(offset);
+  camera.position.lerp(desired, 0.12);
+  camera.lookAt(target);
+}
+
+function intersectsBuilding(pos) {
+  const playerBox = new THREE.Box3(
+    new THREE.Vector3(pos.x - 0.55, 0, pos.z - 0.55),
+    new THREE.Vector3(pos.x + 0.55, 2.8, pos.z + 0.55)
+  );
+  return collisionBoxes.some(box => box.intersectsBox(playerBox));
 }
 
 function updateZombies(dt) {
   for (let i = zombies.length - 1; i >= 0; i--) {
     const z = zombies[i];
-    if (!z || !z.mesh) continue;
-
     const toPlayer = new THREE.Vector3().subVectors(player.mesh.position, z.mesh.position);
     const dist = toPlayer.length();
 
-    if (dist < 18) {
+    if (dist < 18 && !uiPanelOpen) {
       toPlayer.y = 0;
       toPlayer.normalize();
-      z.mesh.position.addScaledVector(toPlayer, 2.1 * dt);
+      z.mesh.position.addScaledVector(toPlayer, 2.05 * dt);
       z.mesh.lookAt(player.mesh.position.x, z.mesh.position.y, player.mesh.position.z);
     }
 
@@ -682,12 +746,12 @@ function updateZombies(dt) {
 
 function hitZombies() {
   const weaponPos = new THREE.Vector3();
-  player.weaponMesh.getWorldPosition(weaponPos);
+  player.swordMesh.getWorldPosition(weaponPos);
 
   for (const z of zombies) {
     if (player.justHit.has(z)) continue;
     const dist = weaponPos.distanceTo(z.mesh.position);
-    if (dist < 2.1) {
+    if (dist < 1.9) {
       z.health -= state.weaponDamage;
       player.justHit.add(z);
     }
@@ -697,19 +761,29 @@ function hitZombies() {
 function tryInteract() {
   const p = player.mesh.position;
 
+  // door interactions
+  for (const door of doors) {
+    if (p.distanceTo(door.position) < 3.1) {
+      openDoorMenu(door);
+      return;
+    }
+  }
+
+  // npc interactions
   for (const npc of npcs) {
-    const d = p.distanceTo(npc.mesh.position);
-    if (d < 3.3) {
+    if (p.distanceTo(npc.mesh.position) < 3.3) {
       if (npc.role === "quest") {
         if (!state.questAccepted) {
           state.questAccepted = true;
           state.hasPickaxe = true;
+          hotbar.slots[2] = "Pickaxe";
           document.getElementById("quest-text").textContent = "Mine 5 iron ore outside the town.";
           showMessage("Quest accepted. You received a pickaxe.");
+          updateHotbar();
         } else if (!state.questComplete) {
           showMessage("Bring me 5 iron ore.");
         } else {
-          showMessage("The path south leads to danger. A boss will guard the second town later.");
+          showMessage("The road south will lead to the next town after a boss is added.");
         }
         updateHUD();
         return;
@@ -727,12 +801,16 @@ function tryInteract() {
     }
   }
 
+  // ore interactions
   for (const ore of ores) {
     if (ore.mined) continue;
-    const d = p.distanceTo(ore.mesh.position);
-    if (d < 2.8) {
+    if (p.distanceTo(ore.mesh.position) < 2.6) {
       if (!state.hasPickaxe) {
         showMessage("You need a pickaxe first.");
+        return;
+      }
+      if (hotbar.active !== 2) {
+        showMessage("Equip the pickaxe in slot 2.");
         return;
       }
       ore.mined = true;
@@ -746,6 +824,69 @@ function tryInteract() {
   }
 
   showMessage("Nothing to interact with.");
+}
+
+function openDoorMenu(door) {
+  const title = door.label + " Door";
+  let text = "Choose what you want.";
+  let buttons = [];
+
+  if (door.role === "weapon") {
+    text = "Browse weapons or talk to the merchant.";
+    buttons = [
+      { label: "Open Weapon Shop", action: () => openShop() },
+      { label: "Leave", action: () => closePanel() }
+    ];
+  } else if (door.role === "forge") {
+    text = "Use the forge or leave.";
+    buttons = [
+      { label: "Use Forge", action: () => useForge() },
+      { label: "Leave", action: () => closePanel() }
+    ];
+  } else if (door.role === "armor") {
+    text = "Armor shop coming next.";
+    buttons = [
+      { label: "Close", action: () => closePanel() }
+    ];
+  } else if (door.role === "item") {
+    text = "Item shop coming next.";
+    buttons = [
+      { label: "Close", action: () => closePanel() }
+    ];
+  }
+
+  openPanel(title, text, buttons);
+}
+
+function openShop() {
+  openPanel("Weapon Shop", "Choose a weapon to buy.", [
+    { label: "Rusty Sword - 10", action: () => buyItem("Rusty Sword", 10, 10) },
+    { label: "Hunter Spear - 35", action: () => buyItem("Hunter Spear", 35, 14) },
+    { label: "Mage Staff - 45", action: () => buyItem("Mage Staff", 45, 16) },
+    { label: "Katana - 50", action: () => buyItem("Katana", 50, 18, true) },
+    { label: "Battle Axe - 60", action: () => buyItem("Battle Axe", 60, 21) },
+    { label: "Demon Blade - 75", action: () => buyItem("Demon Blade", 75, 25) }
+  ]);
+}
+
+function buyItem(name, cost, damage, katana = false) {
+  if (state.money < cost) {
+    showMessage("Not enough money.");
+    closePanel();
+    return;
+  }
+  state.money -= cost;
+  state.weapon = name;
+  state.weaponDamage = damage;
+  hotbar.slots[1] = name;
+  if (katana) {
+    state.ownsKatana = true;
+    hotbar.slots[3] = "Katana";
+  }
+  updateHUD();
+  updateHotbar();
+  showMessage("Purchased " + name + ".");
+  closePanel();
 }
 
 function updateQuestProgress() {
@@ -766,52 +907,36 @@ function useForge() {
     state.hasIronSword = true;
     state.weapon = "Iron Sword";
     state.weaponDamage = 15;
+    hotbar.slots[1] = "Iron Sword";
     showMessage("You forged an Iron Sword.");
     updateHUD();
+    updateHotbar();
     return;
   }
 
   showMessage("The forge is quiet for now.");
 }
 
-function openShop() {
-  const choice = prompt(
-    "Weapon Shop\n\n" +
-    "1. Rusty Sword - 10\n" +
-    "2. Hunter Spear - 35\n" +
-    "3. Mage Staff - 45\n" +
-    "4. Katana - 50\n" +
-    "5. Battle Axe - 60\n" +
-    "6. Demon Blade - 75\n\n" +
-    "Type 1-6"
-  );
+function applySelectedSlot() {
+  const slotItem = hotbar.slots[hotbar.active];
 
-  if (!choice) return;
-
-  const items = {
-    "1": { name: "Rusty Sword", cost: 10, damage: 10 },
-    "2": { name: "Hunter Spear", cost: 35, damage: 14 },
-    "3": { name: "Mage Staff", cost: 45, damage: 16 },
-    "4": { name: "Katana", cost: 50, damage: 18 },
-    "5": { name: "Battle Axe", cost: 60, damage: 21 },
-    "6": { name: "Demon Blade", cost: 75, damage: 25 }
-  };
-
-  const item = items[choice];
-  if (!item) {
-    showMessage("That is not a valid choice.");
-    return;
+  if (hotbar.active === 2 && state.hasPickaxe) {
+    player.pickaxeMesh.visible = true;
+    player.swordMesh.visible = false;
+    state.weapon = "Pickaxe";
+  } else {
+    player.pickaxeMesh.visible = false;
+    player.swordMesh.visible = true;
+    if (hotbar.active === 3 && state.ownsKatana) {
+      state.weapon = "Katana";
+      state.weaponDamage = 18;
+    } else if (hotbar.slots[1] === "Iron Sword") {
+      state.weapon = "Iron Sword";
+      state.weaponDamage = 15;
+    } else if (hotbar.slots[1] !== "Empty") {
+      state.weapon = hotbar.slots[1];
+    }
   }
-
-  if (state.money < item.cost) {
-    showMessage("Not enough money.");
-    return;
-  }
-
-  state.money -= item.cost;
-  state.weapon = item.name;
-  state.weaponDamage = item.damage;
-  showMessage("Purchased " + item.name + ".");
   updateHUD();
 }
 
@@ -819,14 +944,47 @@ function updateHUD() {
   document.getElementById("money").textContent = "$" + state.money;
   document.getElementById("weapon").textContent = "Weapon: " + state.weapon;
   document.getElementById("ore").textContent = "Iron: " + state.iron;
-
   const pct = Math.max(0, state.health) / state.maxHealth;
   document.getElementById("health-fill").style.width = (pct * 100) + "%";
+}
+
+function updateHotbar() {
+  for (let i = 1; i <= 5; i++) {
+    const slot = document.getElementById("slot-" + i);
+    slot.classList.toggle("active", hotbar.active === i);
+    slot.querySelector(".slot-label").textContent = hotbar.slots[i];
+  }
 }
 
 function showMessage(text) {
   document.getElementById("message-box").textContent = text;
   messageTimer = 2.5;
+}
+
+function openPanel(title, text, buttons) {
+  uiPanelOpen = true;
+  const panel = document.getElementById("interaction-panel");
+  const titleEl = document.getElementById("panel-title");
+  const textEl = document.getElementById("panel-text");
+  const buttonsEl = document.getElementById("panel-buttons");
+
+  titleEl.textContent = title;
+  textEl.textContent = text;
+  buttonsEl.innerHTML = "";
+
+  buttons.forEach(item => {
+    const btn = document.createElement("button");
+    btn.textContent = item.label;
+    btn.onclick = item.action;
+    buttonsEl.appendChild(btn);
+  });
+
+  panel.classList.remove("hidden");
+}
+
+function closePanel() {
+  uiPanelOpen = false;
+  document.getElementById("interaction-panel").classList.add("hidden");
 }
 
 function animate() {
@@ -835,10 +993,6 @@ function animate() {
 
   updatePlayer(dt);
   updateZombies(dt);
-
-  if (messageTimer > 0) {
-    messageTimer -= dt;
-  }
 
   renderer.render(scene, camera);
 }
