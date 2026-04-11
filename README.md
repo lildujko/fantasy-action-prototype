@@ -1,4 +1,4 @@
-# Fantasy Action Prototype
+# Random MMO RPG Game
 
 This project is a simple 3D action game prototype inspired by fantasy RPGs. It is built with [Three.js](https://threejs.org/) and demonstrates basic mechanics such as third‑person movement, melee combat, enemy AI and a health system.
 
