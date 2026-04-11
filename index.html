@@ -1,40 +1,29 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Fantasy Action Prototype</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <!-- UI Overlay -->
-    <div id="ui">
-      <div id="health-container" class="bar-container">
-        <span>Health</span>
-        <div id="health-bar" class="bar">
-          <div id="health-fill" class="bar-fill"></div>
-        </div>
-      </div>
-      <div id="enemy-counter"></div>
-      <div id="instructions">
-        <p>W/A/S/D: move | Space: attack | Shift: sprint | Esc: unlock mouse</p>
-      </div>
-    </div>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RPG V2</title>
+<style>
+body{margin:0;overflow:hidden;background:#111;color:white;font-family:sans-serif}
+#ui{position:absolute;top:10px;left:10px;z-index:2}
+#start{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#000c;z-index:3}
+button{padding:12px 20px;margin:8px;font-size:18px}
+</style>
+</head>
+<body>
+<div id="start">
+<h1>Choose Class</h1>
+<button onclick="selectClass('beast')">🐺 Beast</button>
+<button onclick="selectClass('mage')">🔮 Mage</button>
+<button onclick="selectClass('demon')">😈 Demon</button>
+</div>
 
-    <!-- Start screen for selecting a character class -->
-    <div id="start-screen">
-      <h1>Choose Your Class</h1>
-      <div class="class-container">
-        <!-- Buttons trigger class selection via game.js functions -->
-        <button onclick="selectClass('beast')" class="class-btn">🐺 Beast</button>
-        <button onclick="selectClass('mage')" class="class-btn">🔮 Archmage</button>
-        <button onclick="selectClass('demon')" class="class-btn">😈 Demon Lord</button>
-      </div>
-    </div>
+<div id="ui">
+<div id="money">💰 $0</div>
+<div id="quest">Get 5 iron</div>
+</div>
 
-    <!-- Load Three.js and controls from CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
-    <!-- Game script -->
-    <script src="game.js"></script>
-  </body>
+<script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+<script src="game.js"></script>
+</body>
 </html>
