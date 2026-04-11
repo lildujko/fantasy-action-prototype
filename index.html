@@ -1,25 +1,43 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>A random MMO RPG Game</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>A random MMO RPG Game</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div id="start-screen">
+    <div class="start-panel">
+      <h1>A random MMO RPG Game</h1>
+      <p class="subtitle">Choose your class</p>
+      <div class="class-grid">
+        <button class="class-btn demon" onclick="startGame('demon')">Demon</button>
+        <button class="class-btn mage" onclick="startGame('mage')">Mage</button>
+        <button class="class-btn beast" onclick="startGame('beast')">Beast</button>
+      </div>
+      <p class="tip">WASD to move · Shift to sprint · Space to attack · E to interact</p>
+    </div>
+  </div>
 
-<div id="start-screen">
-  <h1>A random MMO RPG Game</h1>
-  <button onclick="startGame('demon')">Demon</button>
-  <button onclick="startGame('mage')">Mage</button>
-  <button onclick="startGame('beast')">Beast</button>
-</div>
+  <div id="hud">
+    <div class="hud-row">
+      <div id="money">$0</div>
+      <div id="weapon">Weapon: None</div>
+      <div id="ore">Iron: 0</div>
+    </div>
+    <div class="hud-row">
+      <div id="health-wrap"><div id="health-fill"></div></div>
+    </div>
+    <div class="hud-row">
+      <div id="quest-text">Talk to the quest giver for a pickaxe.</div>
+    </div>
+    <div class="hud-row">
+      <div id="message-box">Welcome to town.</div>
+    </div>
+  </div>
 
-<div id="ui">
-  <div id="money">$0</div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
-<script src="game.js"></script>
-
+  <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
