@@ -6,6 +6,12 @@ let clock;
 let player;
 const enemies = [];
 let kills = 0;
+
+// Selected character class and game state
+// selectedClass will be set when the player chooses a class from the start screen
+let selectedClass = null;
+// Flag to ensure we start the game loop once the class is selected
+let gameStarted = false;
 // Keyboard state
 const keyState = {};
 
@@ -66,8 +72,8 @@ function init() {
     keyState[e.code] = false;
   });
 
-  // Start animation loop
-  animate();
+  // Do not start the animation loop immediately.
+  // The game will begin once a class is selected on the start screen via selectClass().
 }
 
 function onWindowResize() {
@@ -112,6 +118,8 @@ function createPlayer() {
     attackTimer: 0,
     attackCooldown: 0,
     justHitEnemies: new Set(),
+    // Store the selected class for later reference
+    classType: selectedClass,
   };
 }
 
@@ -282,4 +290,50 @@ function updateHealthUI() {
   if (!healthFill) return;
   const healthPercent = Math.max(player.health, 0) / 100;
   healthFill.style.width = `${healthPercent * 100}%`;
+}
+
+// -------------------------------------------------------------
+// Class selection logic
+// These functions handle displaying the start screen, storing the
+// selected class and applying its stats to the player. Once a
+// class has been chosen, the start screen is hidden and the game
+// loop begins.
+
+// Called from the start screen buttons in index.html
+function selectClass(type) {
+  selectedClass = type;
+  // Hide the start screen
+  const startElem = document.getElementById('start-screen');
+  if (startElem) {
+    startElem.style.display = 'none';
+  }
+  // Apply class-specific stats to the player
+  applyClassStats();
+  // Start the game loop on first selection
+  if (!gameStarted) {
+    gameStarted = true;
+    animate();
+  }
+}
+
+// Adjust player stats based on selected class
+function applyClassStats() {
+  if (!player) return;
+  switch (selectedClass) {
+    case 'beast':
+      player.speed = 6;
+      player.health = 80;
+      break;
+    case 'mage':
+      player.speed = 3;
+      player.health = 70;
+      break;
+    case 'demon':
+      player.speed = 2.5;
+      player.health = 150;
+      break;
+    default:
+      // If no class selected, leave defaults as-is
+      break;
+  }
 }

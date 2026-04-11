@@ -21,6 +21,17 @@
       </div>
     </div>
 
+    <!-- Start screen for selecting a character class -->
+    <div id="start-screen">
+      <h1>Choose Your Class</h1>
+      <div class="class-container">
+        <!-- Buttons trigger class selection via game.js functions -->
+        <button onclick="selectClass('beast')" class="class-btn">🐺 Beast</button>
+        <button onclick="selectClass('mage')" class="class-btn">🔮 Archmage</button>
+        <button onclick="selectClass('demon')" class="class-btn">😈 Demon Lord</button>
+      </div>
+    </div>
+
     <!-- Load Three.js and controls from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
     <!-- Game script -->
