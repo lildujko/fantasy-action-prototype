@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fantasy Action Prototype</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- UI Overlay -->
+    <div id="ui">
+      <div id="health-container" class="bar-container">
+        <span>Health</span>
+        <div id="health-bar" class="bar">
+          <div id="health-fill" class="bar-fill"></div>
+        </div>
+      </div>
+      <div id="enemy-counter"></div>
+      <div id="instructions">
+        <p>W/A/S/D: move | Space: attack | Shift: sprint | Esc: unlock mouse</p>
+      </div>
+    </div>
+
+    <!-- Load Three.js and controls from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+    <!-- Game script -->
+    <script src="game.js"></script>
+  </body>
+</html>
