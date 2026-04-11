@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <!-- UI Overlay -->
     <div id="ui">
       <div id="health-container" class="bar-container">
         <span>Health</span>
@@ -16,30 +17,24 @@
       </div>
       <div id="enemy-counter"></div>
       <div id="instructions">
-        <p>W/A/S/D: move | Space: attack | Shift: sprint</p>
+        <p>W/A/S/D: move | Space: attack | Shift: sprint | Esc: unlock mouse</p>
       </div>
     </div>
 
+    <!-- Start screen for selecting a character class -->
     <div id="start-screen">
-      <h1>Choose Your Champion</h1>
-      <p class="subtitle">Photorealistic lighting, weighted armor, and class-tuned combat roles.</p>
+      <h1>Choose Your Class</h1>
       <div class="class-container">
-        <button onclick="selectClass('beast')" class="class-btn">
-          <span class="title">🐺 Beast Vanguard</span>
-          <span class="meta">Fast melee bruiser</span>
-        </button>
-        <button onclick="selectClass('mage')" class="class-btn">
-          <span class="title">🔮 Arcane Archmage</span>
-          <span class="meta">High damage, glass cannon</span>
-        </button>
-        <button onclick="selectClass('demon')" class="class-btn">
-          <span class="title">😈 Demon Warlord</span>
-          <span class="meta">Tanky fighter, heavy sustain</span>
-        </button>
+        <!-- Buttons trigger class selection via game.js functions -->
+        <button onclick="selectClass('beast')" class="class-btn">🐺 Beast</button>
+        <button onclick="selectClass('mage')" class="class-btn">🔮 Archmage</button>
+        <button onclick="selectClass('demon')" class="class-btn">😈 Demon Lord</button>
       </div>
     </div>
 
+    <!-- Load Three.js and controls from CDN -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+    <!-- Game script -->
     <script src="game.js"></script>
   </body>
 </html>
