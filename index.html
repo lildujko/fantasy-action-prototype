@@ -16,51 +16,33 @@
         <button class="class-btn mage" onclick="startGame('mage')">Mage</button>
         <button class="class-btn beast" onclick="startGame('beast')">Beast</button>
       </div>
-      <p class="tip">WASD move · Shift sprint · Left click attack · Move mouse for camera · E interact</p>
+      <p class="tip">WASD move · Shift sprint · Left click attack · Mouse camera · E interact</p>
     </div>
   </div>
 
   <div id="hud">
-    <div class="hud-row top-row">
+    <div class="hud-row">
       <div id="money">$0</div>
       <div id="weapon">Weapon: Sword</div>
       <div id="ore">Iron: 0</div>
     </div>
-
     <div class="hud-row">
       <div id="health-wrap"><div id="health-fill"></div></div>
     </div>
-
     <div class="hud-row">
       <div id="quest-text">Talk to the quest giver for a pickaxe.</div>
     </div>
-
     <div class="hud-row">
       <div id="message-box">Welcome to town.</div>
     </div>
+  </div>
 
-    <div id="hotbar">
-      <div class="hotbar-slot active" id="slot-1">
-        <span class="slot-num">1</span>
-        <span class="slot-label">Sword</span>
-      </div>
-      <div class="hotbar-slot" id="slot-2">
-        <span class="slot-num">2</span>
-        <span class="slot-label">Pickaxe</span>
-      </div>
-      <div class="hotbar-slot" id="slot-3">
-        <span class="slot-num">3</span>
-        <span class="slot-label">Katana</span>
-      </div>
-      <div class="hotbar-slot" id="slot-4">
-        <span class="slot-num">4</span>
-        <span class="slot-label">Empty</span>
-      </div>
-      <div class="hotbar-slot" id="slot-5">
-        <span class="slot-num">5</span>
-        <span class="slot-label">Empty</span>
-      </div>
-    </div>
+  <div id="hotbar">
+    <div class="hotbar-slot active" id="slot-1"><span class="slot-num">1</span><span class="slot-label">Sword</span></div>
+    <div class="hotbar-slot" id="slot-2"><span class="slot-num">2</span><span class="slot-label">Pickaxe</span></div>
+    <div class="hotbar-slot" id="slot-3"><span class="slot-num">3</span><span class="slot-label">Katana</span></div>
+    <div class="hotbar-slot" id="slot-4"><span class="slot-num">4</span><span class="slot-label">Empty</span></div>
+    <div class="hotbar-slot" id="slot-5"><span class="slot-num">5</span><span class="slot-label">Empty</span></div>
   </div>
 
   <div id="interaction-panel" class="hidden">
