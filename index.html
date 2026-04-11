@@ -2,28 +2,24 @@
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RPG V2</title>
-<style>
-body{margin:0;overflow:hidden;background:#111;color:white;font-family:sans-serif}
-#ui{position:absolute;top:10px;left:10px;z-index:2}
-#start{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;background:#000c;z-index:3}
-button{padding:12px 20px;margin:8px;font-size:18px}
-</style>
+<title>A random MMO RPG Game</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="start">
-<h1>Choose Class</h1>
-<button onclick="selectClass('beast')">🐺 Beast</button>
-<button onclick="selectClass('mage')">🔮 Mage</button>
-<button onclick="selectClass('demon')">😈 Demon</button>
+
+<div id="start-screen">
+  <h1>A random MMO RPG Game</h1>
+  <button onclick="startGame('demon')">Demon</button>
+  <button onclick="startGame('mage')">Mage</button>
+  <button onclick="startGame('beast')">Beast</button>
 </div>
 
 <div id="ui">
-<div id="money">💰 $0</div>
-<div id="quest">Get 5 iron</div>
+  <div id="money">$0</div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
 <script src="game.js"></script>
+
 </body>
 </html>
