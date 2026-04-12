@@ -18,8 +18,9 @@
       </div>
       <div class="skills-preview">
         <div><strong>Q</strong> Dash</div>
-        <div><strong>R</strong> Spin Slash</div>
-        <div><strong>F</strong> Heal</div>
+        <div><strong>R</strong> Burst</div>
+        <div><strong>F</strong> Recover</div>
+        <div><strong>I</strong> Inventory</div>
       </div>
       <p class="tip">WASD move · Shift sprint · Left click attack · Mouse camera · E interact · 1-5 hotbar</p>
     </div>
@@ -28,12 +29,12 @@
   <div id="hud">
     <div class="hud-row">
       <div id="money">$0</div>
-      <div id="weapon">Weapon: Rusty Sword</div>
+      <div id="weapon">Weapon: Base Weapon</div>
       <div id="materials">Iron: 0 · Wood: 0 · Cloth: 0 · Crystal: 0</div>
     </div>
     <div class="hud-row">
-      <div id="level-box">Level 1 · XP 0 / 20</div>
-      <div id="skills-box">Q Dash · R Spin Slash · F Heal</div>
+      <div id="level-box">Level 1 · XP 0 / 20 · Skill Points 0</div>
+      <div id="skills-box">Q Dash · R Burst · F Recover</div>
     </div>
     <div class="hud-row">
       <div id="health-wrap"><div id="health-fill"></div></div>
@@ -43,23 +44,43 @@
     </div>
     <div class="hud-row">
       <div id="message-box">Welcome to town.</div>
+      <div id="area-box">Area: Town</div>
     </div>
   </div>
 
   <div id="hotbar">
-    <div class="hotbar-slot active" id="slot-1"><span class="slot-num">1</span><span class="slot-label">Rusty Sword</span></div>
+    <div class="hotbar-slot active" id="slot-1"><span class="slot-num">1</span><span class="slot-label">Base Weapon</span></div>
     <div class="hotbar-slot" id="slot-2"><span class="slot-num">2</span><span class="slot-label">Empty</span></div>
     <div class="hotbar-slot" id="slot-3"><span class="slot-num">3</span><span class="slot-label">Empty</span></div>
     <div class="hotbar-slot" id="slot-4"><span class="slot-num">4</span><span class="slot-label">Empty</span></div>
     <div class="hotbar-slot" id="slot-5"><span class="slot-num">5</span><span class="slot-label">Empty</span></div>
   </div>
 
-  <div id="interaction-panel" class="hidden">
+  <div id="panel" class="overlay hidden">
     <div class="panel-card">
       <h2 id="panel-title">Menu</h2>
-      <p id="panel-text">Choose what you want.</p>
+      <p id="panel-text"></p>
       <div id="panel-buttons"></div>
       <button class="close-btn" onclick="closePanel()">Close</button>
+    </div>
+  </div>
+
+  <div id="inventory" class="overlay hidden">
+    <div class="panel-card inventory-card">
+      <h2>Inventory</h2>
+      <div class="inventory-grid">
+        <div class="inventory-col">
+          <h3>Discovered Materials</h3>
+          <div id="inventory-items"></div>
+        </div>
+        <div class="inventory-col">
+          <h3>Stats</h3>
+          <div id="inventory-stats"></div>
+          <h3>Spend Skill Points</h3>
+          <div id="skill-buttons"></div>
+        </div>
+      </div>
+      <button class="close-btn" onclick="toggleInventory(false)">Close</button>
     </div>
   </div>
 
