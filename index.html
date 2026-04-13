@@ -1,57 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>A random MMO RPG Game</title>
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <!-- Start screen with class selection -->
-    <div id="start-screen" class="screen">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>A random MMO RPG Game - V13.3</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="start-screen" class="screen">
+    <div class="panel">
       <h1>A random MMO RPG Game</h1>
-      <p>Select a class to begin</p>
-      <div class="class-buttons">
-        <button onclick="startGame('demon')">Demon</button>
-        <button onclick="startGame('mage')">Mage</button>
+      <p>Choose a class</p>
+      <div class="class-grid">
         <button onclick="startGame('beast')">Beast</button>
+        <button onclick="startGame('mage')">Mage</button>
+        <button onclick="startGame('demon')">Demon</button>
       </div>
+      <p class="tip">WASD move · Shift sprint · Left click attack · E interact · I inventory · drag mouse to move camera</p>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div class="top-left stack">
+      <div class="pill" id="area-label">Area: Town 1</div>
+      <div class="pill" id="message-label">Welcome.</div>
+      <div class="pill">Level <span id="level-value">1</span> · XP <span id="xp-value">0</span>/<span id="xp-next">100</span></div>
+      <div class="pill">HP <span id="hp-value">100</span>/<span id="hp-max">100</span></div>
+      <div class="bar"><div id="hp-fill"></div></div>
+      <div class="bar xp"><div id="xp-fill"></div></div>
+      <div class="pill">$<span id="money-value">0</span></div>
     </div>
 
-    <!-- Main UI overlay -->
-    <div id="ui" class="hidden">
-      <div id="bars">
-        <div class="bar-container">
-          <span>HP</span>
-          <div class="bar">
-            <div id="health-fill" class="fill"></div>
-          </div>
-        </div>
-        <div class="bar-container">
-          <span>XP</span>
-          <div class="bar">
-            <div id="xp-fill" class="fill"></div>
-          </div>
-        </div>
-        <div id="level-display">Lvl&nbsp;<span id="level-value">1</span></div>
-      </div>
-      <div id="money-display">$0</div>
-      <div id="instructions">
-        <p>WASD: move | Shift: sprint | Left Click: attack | E: interact | I: inventory | C: cave</p>
-      </div>
+    <div class="top-right stack right">
+      <button id="fullscreen-btn">Fullscreen</button>
+      <button id="inventory-btn">Inventory (I)</button>
     </div>
 
-    <!-- Inventory overlay -->
-    <div id="inventory-overlay" class="overlay hidden">
+    <div class="bottom-center pill hotbar" id="hotbar-label">Weapon: Base Weapon</div>
+  </div>
+
+  <div id="inventory" class="overlay hidden">
+    <div class="panel inventory-panel">
       <h2>Inventory</h2>
-      <ul id="inventory-list"></ul>
-      <button id="close-inventory">Close</button>
+      <div id="inventory-content"></div>
+      <button onclick="toggleInventory(false)">Close</button>
     </div>
+  </div>
 
-    <!-- Alert overlay for area discovery -->
-    <div id="alert" class="hidden"></div>
+  <div id="alert-banner" class="hidden"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
-    <script src="game.js"></script>
-  </body>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.159.0/build/three.min.js"></script>
+  <script src="game.js"></script>
+</body>
 </html>
