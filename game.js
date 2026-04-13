@@ -1,373 +1,794 @@
+// Core logic for the V13.1 build of the MMO RPG prototype.
+// This file defines the scene, player, enemies, cave area, and basic RPG mechanics.
 
-let scene, camera, renderer, clock;
+// THREE.js objects
+let scene, camera, renderer;
+
+// Game state
 let player;
-let keys = {};
-let npcs = [], enemies = [], ores = [], caveOres = [], doors = [], collisionBoxes = [], effects = [];
-let caveEntrance;
-let uiPanelOpen = false, selectedClass = null, lastArea = "";
-const alertedAreas = new Set();
-const mouseLook = { yaw: 0, pitch: 0.34, distance: 10.5 };
-const hotbar = { active: 1, slots: { 1: "Base Weapon", 2: "Empty", 3: "Empty", 4: "Empty", 5: "Empty" } };
-const state = {
-  money: 0, health: 100, maxHealth: 100,
-  level: 1, xp: 0, xpNext: 20, skillPoints: 0,
-  questAccepted: false, questComplete: false,
-  hasPickaxe: false, hasIronPickaxe: false,
-  iron: 0, wood: 0, cloth: 0, crystal: 0,
-  weapon: "Base Weapon", weaponDamage: 8, ownsKatana: false,
-  discovered: { iron: false, wood: false, cloth: false, crystal: false }
+let enemies = [];
+let selectedClass = null;
+let gameStarted = false;
+let isInCave = false;
+let lastSpawnTime = 0;
+
+// Boss and progression flags
+let bossSpawned = false;
+let secondTownUnlocked = false;
+
+// World objects
+let townObjects = [];
+let caveGroup;
+
+// Controls
+const keys = {};
+let mouseDown = false;
+
+// Stats and inventory
+const inventory = {
+  pickaxe: false,
+  iron: 0,
+  crystal: 0,
+  weapons: [],
 };
+let money = 0;
 
-function baseWeaponName(){ return selectedClass==="beast" ? "Claws" : selectedClass==="mage" ? "Staff" : "Blood Magic"; }
-function startGame(type){ selectedClass = type; hotbar.slots[1] = baseWeaponName(); state.weapon = baseWeaponName(); document.getElementById("start-screen").style.display = "none"; init(); alertArea("Town"); animate(); }
+// XP and leveling
+let xp = 0;
+let level = 1;
+let xpToNext = 100;
 
-function init(){
+// UI elements (cached after init)
+let healthFill,
+  xpFill,
+  levelValue,
+  moneyDisplay,
+  inventoryOverlay,
+  inventoryList,
+  alertBox;
+
+// Start the game after class selection
+function startGame(type) {
+  if (gameStarted) return;
+  selectedClass = type;
+  document.getElementById('start-screen').classList.add('hidden');
+  document.getElementById('ui').classList.remove('hidden');
+  init();
+  gameStarted = true;
+  animate();
+}
+
+// Initialization
+function init() {
+  // Cache UI refs
+  healthFill = document.getElementById('health-fill');
+  xpFill = document.getElementById('xp-fill');
+  levelValue = document.getElementById('level-value');
+  moneyDisplay = document.getElementById('money-display');
+  inventoryOverlay = document.getElementById('inventory-overlay');
+  inventoryList = document.getElementById('inventory-list');
+  alertBox = document.getElementById('alert');
+
+  // Scene
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87a8cc);
-  scene.fog = new THREE.Fog(0x87a8cc, 70, 260);
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
+  scene.background = new THREE.Color(0x202030);
+
+  // Camera
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
+  camera.position.set(0, 4, 8);
+
+  // Renderer
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
   document.body.appendChild(renderer.domElement);
-  clock = new THREE.Clock();
-  setupLights(); createGround(); createTown(); createForestRing(); createCaveArea(); player = createPlayer(selectedClass); spawnEnemiesByDistance();
-  bindEvents(); updateHUD(); updateHotbar(); updateInventoryUI(); showMessage("You arrived in town.");
+
+  window.addEventListener('resize', onResize);
+
+  // Lights
+  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambient);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(5, 10, 5);
+  scene.add(dir);
+
+  // Build initial town
+  buildTown();
+
+  // Create player
+  player = createPlayer(selectedClass);
+
+  // Event listeners for input
+  document.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+    if (e.key.toLowerCase() === 'e') {
+      handleInteract();
+    }
+    if (e.key.toLowerCase() === 'i') {
+      toggleInventory();
+    }
+    if (e.key.toLowerCase() === 'c') {
+      // Attempt to enter/exit cave when 'c' is pressed near entrance
+      handleCaveToggle();
+    }
+  });
+  document.addEventListener('keyup', (e) => {
+    keys[e.key.toLowerCase()] = false;
+  });
+  document.addEventListener('mousedown', (e) => {
+    if (e.button === 0) {
+      mouseDown = true;
+      beginAttack();
+    }
+  });
+  document.addEventListener('mouseup', (e) => {
+    if (e.button === 0) mouseDown = false;
+  });
+
+  // Close inventory button
+  document.getElementById('close-inventory').addEventListener('click', () => {
+    inventoryOverlay.classList.add('hidden');
+  });
 }
 
-function bindEvents(){ window.addEventListener("resize", onResize); document.addEventListener("keydown", onKeyDown); document.addEventListener("keyup", onKeyUp); document.addEventListener("mousemove", onMouseMove); document.addEventListener("mousedown", onMouseDown); }
-function setupLights(){ scene.add(new THREE.HemisphereLight(0xffffff, 0x334155, 1.25)); const sun = new THREE.DirectionalLight(0xffffff, 1.25); sun.position.set(30,40,20); scene.add(sun); }
-
-function createGround(){
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(520,520), new THREE.MeshStandardMaterial({ color: 0x6d8754 })); ground.rotation.x = -Math.PI/2; scene.add(ground);
-  const plaza = new THREE.Mesh(new THREE.CircleGeometry(28,56), new THREE.MeshStandardMaterial({ color: 0xa5aab2 })); plaza.rotation.x = -Math.PI/2; plaza.position.y = 0.03; scene.add(plaza);
-  addRoad(0,0,12,86,0xb8bdc5); addRoad(0,0,86,12,0xb8bdc5);
-}
-function addRoad(x,z,w,d,color){ const road = new THREE.Mesh(new THREE.PlaneGeometry(w,d), new THREE.MeshStandardMaterial({ color })); road.rotation.x = -Math.PI/2; road.position.set(x,0.04,z); scene.add(road); }
-
-function createTown(){
-  createTownHall(0,52); createClockTower(0,0);
-  createBuilding(-34,-24,15,11,0x8b5e3c,"Weapons","weapon");
-  createBuilding(0,-24,15,11,0x7b5537,"Supplies","supplies");
-  createBuilding(34,-24,15,11,0x6f4a2f,"Inn","inn");
-  createBuilding(-40,22,15,11,0x70563d,"Workshop","workshop");
-  createBuilding(0,28,18,13,0x59616f,"Forge","forge");
-  createBuilding(40,22,15,11,0x7c6a58,"Storage","storage");
-  createGate(0,-44);
-  createNPC("Quest Giver",-12,-3,0x3b82f6,"quest");
-  createNPC("Weapons Dealer",-34,-23,0xf59e0b,"merchant");
-  createNPC("Blacksmith",0,28,0x94a3b8,"forge");
-  for(let i=-40;i<=40;i+=10){ createLamp(i,-34); createLamp(i,34); } createLamp(-34,0); createLamp(34,0);
-}
-function createClockTower(x,z){
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(3.6,4.4,3.4,20), new THREE.MeshStandardMaterial({ color: 0x64748b })); base.position.set(x,1.7,z); scene.add(base);
-  const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.35,1.7,10.5,18), new THREE.MeshStandardMaterial({ color: 0x9298a1 })); tower.position.set(x,7.8,z); scene.add(tower);
-  const face = new THREE.Mesh(new THREE.CylinderGeometry(1.9,1.9,0.28,28), new THREE.MeshStandardMaterial({ color: 0xf8fafc })); face.position.set(x,11.5,z+1.6); face.rotation.x = Math.PI/2; scene.add(face);
-}
-function createTownHall(x,z){
-  const body = new THREE.Mesh(new THREE.BoxGeometry(26,11.5,15), new THREE.MeshStandardMaterial({ color: 0x8a6a47 })); body.position.set(x,5.75,z); scene.add(body);
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(12.0,5.8,4), new THREE.MeshStandardMaterial({ color: 0x4b2e1a })); roof.position.set(x,13.7,z); roof.rotation.y = Math.PI*0.25; scene.add(roof);
-  addDoubleSidedSign("Town Hall", x, 8.4, z-7.7, 6.4, 2.0);
-  const door = new THREE.Mesh(new THREE.BoxGeometry(2.8,4.0,0.24), new THREE.MeshStandardMaterial({ color: 0x4b2e1a })); door.position.set(x,2.0,z-7.62); scene.add(door);
-  doors.push({ role:"townhall", label:"Town Hall", position:new THREE.Vector3(x,0,z-9.3) });
-  collisionBoxes.push(new THREE.Box3(new THREE.Vector3(x-13,0,z-7.5), new THREE.Vector3(x+13,11.5,z+7.5)));
-}
-function createBuilding(x,z,w,d,color,label,role){
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w,7.0,d), new THREE.MeshStandardMaterial({ color })); body.position.set(x,3.5,z); scene.add(body);
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(w*0.72,3.6,4), new THREE.MeshStandardMaterial({ color: 0x3b2f2f })); roof.position.set(x,8.2,z); roof.rotation.y = Math.PI*0.25; scene.add(roof);
-  addDoubleSidedSign(label, x, 5.8, z-d/2-0.6, 6.1, 1.95);
-  const door = new THREE.Mesh(new THREE.BoxGeometry(2.0,3.2,0.24), new THREE.MeshStandardMaterial({ color: 0x4b2e1a })); door.position.set(x,1.6,z-d/2-0.12); scene.add(door);
-  doors.push({ role, label, position:new THREE.Vector3(x,0,z-d/2-2.0) });
-  collisionBoxes.push(new THREE.Box3(new THREE.Vector3(x-w/2,0,z-d/2), new THREE.Vector3(x+w/2,7.1,z+d/2)));
-}
-function addDoubleSidedSign(text,x,y,z,w,h){
-  const front = createStaticSign(text,320,w,h); front.position.set(x,y,z); scene.add(front);
-  const back = createStaticSign(text,320,w,h); back.position.set(x,y,z+0.03); back.rotation.y = Math.PI; scene.add(back);
-}
-function createStaticSign(text,width=320,worldW=5.4,worldH=1.8){
-  const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = 96; const ctx = canvas.getContext("2d");
-  ctx.fillStyle="#f2d39b"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.strokeStyle="#6b4423"; ctx.lineWidth=8; ctx.strokeRect(4,4,canvas.width-8,canvas.height-8);
-  ctx.fillStyle="#2f2418"; ctx.font="bold 30px Arial"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(text,canvas.width/2,canvas.height/2);
-  return new THREE.Mesh(new THREE.PlaneGeometry(worldW,worldH), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas) }));
-}
-function createGate(x,z){
-  const left = new THREE.Mesh(new THREE.BoxGeometry(2,8,2), new THREE.MeshStandardMaterial({ color: 0x64748b })); left.position.set(x-4,4,z); scene.add(left);
-  const right = left.clone(); right.position.x = x+4; scene.add(right);
-  const top = new THREE.Mesh(new THREE.BoxGeometry(10,2,2), new THREE.MeshStandardMaterial({ color: 0x475569 })); top.position.set(x,8,z); scene.add(top);
-  collisionBoxes.push(new THREE.Box3(new THREE.Vector3(x-5,0,z-1), new THREE.Vector3(x-3,8,z+1)));
-  collisionBoxes.push(new THREE.Box3(new THREE.Vector3(x+3,0,z-1), new THREE.Vector3(x+5,8,z+1)));
-}
-function createLamp(x,z){
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.18,4,8), new THREE.MeshStandardMaterial({ color: 0x3f3f46 })); post.position.set(x,2,z); scene.add(post);
-  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.45,12,12), new THREE.MeshStandardMaterial({ color: 0xf8e16c, emissive: 0xf8e16c, emissiveIntensity: 0.7 })); glow.position.set(x,4.2,z); scene.add(glow);
-}
-function createNPC(name,x,z,color,role){
-  const g = new THREE.Group();
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9,1.2,0.55), new THREE.MeshStandardMaterial({ color })); torso.position.y=1.2; g.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.35,14,14), new THREE.MeshStandardMaterial({ color: 0xf1c27d })); head.position.y=2.15; g.add(head);
-  const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.24,0.95,0.24), new THREE.MeshStandardMaterial({ color })); leftArm.position.set(-0.65,1.25,0); g.add(leftArm);
-  const rightArm = leftArm.clone(); rightArm.position.x=0.65; g.add(rightArm);
-  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.28,1,0.28), new THREE.MeshStandardMaterial({ color: 0x1f2937 })); leftLeg.position.set(-0.22,0.45,0); g.add(leftLeg);
-  const rightLeg = leftLeg.clone(); rightLeg.position.x=0.22; g.add(rightLeg);
-  if(role==="merchant"){ const hat = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,0.35,12), new THREE.MeshStandardMaterial({ color: 0x7c2d12 })); hat.position.y=2.55; g.add(hat); }
-  if(role==="forge"){ const hammer = new THREE.Mesh(new THREE.BoxGeometry(0.15,0.8,0.15), new THREE.MeshStandardMaterial({ color: 0x4b5563 })); hammer.position.set(0.78,1.2,0); g.add(hammer); }
-  g.position.set(x,0,z); scene.add(g); npcs.push({ name, role, mesh: g });
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function createPlayer(playerClass){
-  const colors = { demon: 0x7f1d1d, mage: 0x4338ca, beast: 0x7c2d12 };
-  const g = new THREE.Group();
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(1,1.35,0.65), new THREE.MeshStandardMaterial({ color: colors[playerClass] || 0x2563eb })); torso.position.y=1.25; g.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.38,16,16), new THREE.MeshStandardMaterial({ color: 0xf1c27d })); head.position.y=2.25; g.add(head);
-  const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.24,1.05,0.24), new THREE.MeshStandardMaterial({ color: colors[playerClass] || 0x2563eb })); leftArm.position.set(-0.72,1.25,0); g.add(leftArm);
-  const rightArm = leftArm.clone(); rightArm.position.x=0.72; g.add(rightArm);
-  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.3,1.1,0.3), new THREE.MeshStandardMaterial({ color: 0x111827 })); leftLeg.position.set(-0.24,0.5,0); g.add(leftLeg);
-  const rightLeg = leftLeg.clone(); rightLeg.position.x=0.24; g.add(rightLeg);
-  if(playerClass==="mage"){ const hat = new THREE.Mesh(new THREE.ConeGeometry(0.55,1.25,12), new THREE.MeshStandardMaterial({ color: 0x111827 })); hat.position.y=2.95; g.add(hat); }
-  if(playerClass==="demon"){ const horn1 = new THREE.Mesh(new THREE.ConeGeometry(0.14,0.55,10), new THREE.MeshStandardMaterial({ color: 0x111827 })); horn1.position.set(0.2,2.75,0.05); horn1.rotation.z=-0.5; g.add(horn1); const horn2 = horn1.clone(); horn2.position.x=-0.2; horn2.rotation.z=0.5; g.add(horn2); }
-  if(playerClass==="beast"){ const ear1 = new THREE.Mesh(new THREE.ConeGeometry(0.12,0.45,10), new THREE.MeshStandardMaterial({ color: 0x3f2a18 })); ear1.position.set(0.23,2.75,0); g.add(ear1); const ear2 = ear1.clone(); ear2.position.x=-0.23; g.add(ear2); }
-  const weaponMesh = createBaseWeapon(playerClass); weaponMesh.position.set(0.92,1.18,0); g.add(weaponMesh);
-  const pickaxeMesh = createPickaxe(); pickaxeMesh.position.set(0.92,1.2,0); pickaxeMesh.visible=false; g.add(pickaxeMesh);
-  g.position.set(0,0,0); scene.add(g);
-  return { mesh:g, weaponMesh, pickaxeMesh, moveSpeed:5.0, sprintSpeed:8.0, attackTimer:0, attackCooldown:0, attacking:false, justHit:new Set(), velocity:new THREE.Vector3(), skillCooldowns:{ q:0, r:0, f:0 } };
-}
+// Build town environment with houses and signs
+function buildTown() {
+  // Clear old objects
+  townObjects.forEach((obj) => {
+    scene.remove(obj);
+  });
+  townObjects = [];
 
-function createBaseWeapon(playerClass){
-  if(playerClass==="beast"){
-    const g = new THREE.Group();
-    for(let i=0;i<3;i++){ const claw = new THREE.Mesh(new THREE.ConeGeometry(0.05,0.7,8), new THREE.MeshStandardMaterial({ color: 0xdbe3ec, metalness:0.6 })); claw.rotation.x = Math.PI/2; claw.position.set(0.08*i-0.08,0,0.2+i*0.05); g.add(claw); }
-    g.rotation.z = 0.2; return g;
+  // Ground plane
+  const groundGeo = new THREE.PlaneGeometry(120, 120);
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x2e2a34 });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+  townObjects.push(ground);
+
+  // Create some buildings with signs
+  const buildings = [
+    { x: -20, z: 0, label: 'Forge' },
+    { x: 20, z: 0, label: 'Weapons' },
+    { x: 0, z: -20, label: 'Supplies' },
+    { x: 40, z: -20, label: 'Town Hall' },
+    { x: -40, z: -20, label: 'Home' },
+  ];
+  buildings.forEach(({ x, z, label }) => {
+    const house = new THREE.Mesh(
+      new THREE.BoxGeometry(6, 4, 6),
+      new THREE.MeshStandardMaterial({ color: 0x4e342e })
+    );
+    house.position.set(x, 2, z);
+    scene.add(house);
+    townObjects.push(house);
+    // Add sign above
+    const sign = createTextSign(label);
+    sign.position.set(x, 5, z);
+    scene.add(sign);
+    townObjects.push(sign);
+  });
+
+  // Cave entrance marker
+  const caveEntrance = new THREE.Mesh(
+    new THREE.BoxGeometry(4, 4, 2),
+    new THREE.MeshStandardMaterial({ color: 0x1b5e20 })
+  );
+  caveEntrance.position.set(0, 2, 40);
+  caveEntrance.name = 'caveEntrance';
+  scene.add(caveEntrance);
+  townObjects.push(caveEntrance);
+
+  // If second town unlocked, build the new town
+  if (secondTownUnlocked) {
+    buildSecondTown();
   }
-  if(playerClass==="mage"){
-    const g = new THREE.Group();
-    const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1.8,8), new THREE.MeshStandardMaterial({ color: 0x7c5a34 })); staff.rotation.z = 0.2; g.add(staff);
-    const orb = new THREE.Mesh(new THREE.SphereGeometry(0.16,12,12), new THREE.MeshStandardMaterial({ color: 0x60a5fa, emissive:0x2563eb, emissiveIntensity:0.6 })); orb.position.set(0.18,0.82,0); g.add(orb); return g;
-  }
-  const g = new THREE.Group();
-  const core = new THREE.Mesh(new THREE.SphereGeometry(0.18,12,12), new THREE.MeshStandardMaterial({ color: 0x7f1d1d, emissive:0x7f1d1d, emissiveIntensity:0.8 })); g.add(core);
-  const aura = new THREE.Mesh(new THREE.SphereGeometry(0.28,12,12), new THREE.MeshBasicMaterial({ color: 0xdc2626, transparent:true, opacity:0.35 })); g.add(aura); return g;
 }
 
-function createPickaxe(){
+// Build the second town after defeating the boss
+function buildSecondTown() {
+  // Create a plaza further away with new buildings
+  const secondBuildings = [
+    { x: 0, z: 100, label: 'Blacksmith' },
+    { x: 10, z: 110, label: 'Inn' },
+    { x: -10, z: 90, label: 'Magic Shop' },
+  ];
+  secondBuildings.forEach(({ x, z, label }) => {
+    const house = new THREE.Mesh(
+      new THREE.BoxGeometry(6, 4, 6),
+      new THREE.MeshStandardMaterial({ color: 0x546e7a })
+    );
+    house.position.set(x, 2, z);
+    scene.add(house);
+    townObjects.push(house);
+    const sign = createTextSign(label);
+    sign.position.set(x, 5, z);
+    scene.add(sign);
+    townObjects.push(sign);
+  });
+  showAlert('You discovered Second Town');
+}
+
+// Create a sign with text using a canvas texture
+function createTextSign(text) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#221f1f';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = '28px sans-serif';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.5), material);
+  sign.rotation.y = Math.PI; // front/back orientation ensures text is readable
+  return sign;
+}
+
+// Create player object with class-specific model and weapon
+function createPlayer(classType) {
   const group = new THREE.Group();
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,1.55,10), new THREE.MeshStandardMaterial({ color: 0x7c5a34 })); handle.rotation.z = 0.4; group.add(handle);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.75,0.12,0.14), new THREE.MeshStandardMaterial({ color: 0x9ca3af })); head.position.set(0.26,0.56,0); head.rotation.z = 0.4; group.add(head); return group;
-}
-
-function createForestRing(){
-  const count = 120;
-  for(let i=0;i<count;i++){
-    const angle = (Math.PI*2*i)/count;
-    const radius = 70 + Math.random()*55;
-    const x = Math.cos(angle)*radius, z = Math.sin(angle)*radius;
-    if(Math.abs(x)<55 && Math.abs(z)<55) continue;
-    createTree(x,z);
-    if(Math.random()<0.18) spawnOre(x + Math.random()*8 - 4, z + Math.random()*8 - 4);
+  // Determine color based on class
+  let bodyColor;
+  switch (classType) {
+    case 'demon':
+      bodyColor = 0x7b0000;
+      break;
+    case 'mage':
+      bodyColor = 0x5e35b1;
+      break;
+    case 'beast':
+      bodyColor = 0x4e342e;
+      break;
+    default:
+      bodyColor = 0x455a64;
   }
-}
-function createTree(x,z){
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.45,3.2,8), new THREE.MeshStandardMaterial({ color: 0x6b4423 })); trunk.position.set(x,1.6,z); scene.add(trunk);
-  const leaves = new THREE.Mesh(new THREE.SphereGeometry(1.7,12,12), new THREE.MeshStandardMaterial({ color: 0x2f6b32 })); leaves.position.set(x,4.3,z); scene.add(leaves);
-}
-function createCaveArea(){
-  const entrance = new THREE.Mesh(new THREE.CylinderGeometry(4,5.5,5,20), new THREE.MeshStandardMaterial({ color: 0x4b5563 })); entrance.position.set(92,2.5,18); scene.add(entrance);
-  const hole = new THREE.Mesh(new THREE.PlaneGeometry(6,4), new THREE.MeshBasicMaterial({ color: 0x111111 })); hole.position.set(92,2.3,21.8); scene.add(hole);
-  addDoubleSidedSign("Crystal Cave",92,6.5,14.5,6.6,2.0); caveEntrance = new THREE.Vector3(92,0,18);
-  const cavernFloor = new THREE.Mesh(new THREE.CircleGeometry(30,48), new THREE.MeshStandardMaterial({ color: 0x3f4650 })); cavernFloor.rotation.x=-Math.PI/2; cavernFloor.position.set(0,-0.02,160); scene.add(cavernFloor);
-  for(let i=0;i<20;i++){ const col = new THREE.Mesh(new THREE.CylinderGeometry(0.6+Math.random()*0.8,1.0+Math.random()*1.2,4+Math.random()*8,10), new THREE.MeshStandardMaterial({ color: 0x6b5a45 })); col.position.set(-24+Math.random()*48,col.geometry.parameters.height/2,142+Math.random()*36); scene.add(col); }
-  for(let i=0;i<24;i++){ const stal = new THREE.Mesh(new THREE.ConeGeometry(0.4+Math.random()*0.8,2+Math.random()*6,8), new THREE.MeshStandardMaterial({ color: 0x8b7355 })); stal.position.set(-28+Math.random()*56,10+Math.random()*4,140+Math.random()*40); stal.rotation.x=Math.PI; scene.add(stal); }
-  for(let i=0;i<12;i++) spawnCaveCrystal(-20+Math.random()*40,146+Math.random()*28);
-}
-function spawnOre(x,z){ const ore = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8,0), new THREE.MeshStandardMaterial({ color: 0x6b7280 })); ore.position.set(x,0.9,z); scene.add(ore); ores.push({ mesh:ore, mined:false }); }
-function spawnCaveCrystal(x,z){ const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.95,0), new THREE.MeshStandardMaterial({ color: 0x7c3aed, emissive:0x4c1d95, emissiveIntensity:0.35 })); crystal.position.set(x,1.2,z); scene.add(crystal); caveOres.push({ mesh:crystal, mined:false }); }
-
-function spawnEnemiesByDistance(){ for(let i=0;i<18;i++){ const tier = i<6?1:i<12?2:3; const radius = tier===1?78+Math.random()*18:tier===2?108+Math.random()*28:145+Math.random()*40; const a = Math.random()*Math.PI*2; spawnEnemy(Math.cos(a)*radius, Math.sin(a)*radius, tier); } }
-function spawnEnemy(x,z,tier){
-  const colors = {1:0x4d6b39,2:0x6b4d39,3:0x4b3a6b}; const g = new THREE.Group();
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.9,1.2,0.55), new THREE.MeshStandardMaterial({ color: colors[tier] })); torso.position.y=1.2; g.add(torso);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.33,14,14), new THREE.MeshStandardMaterial({ color: 0x7fa36c })); head.position.y=2.1; g.add(head);
-  const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.2,1.0,0.2), new THREE.MeshStandardMaterial({ color: colors[tier] })); leftArm.position.set(-0.63,1.2,0.15); leftArm.rotation.x=0.45; g.add(leftArm);
-  const rightArm = leftArm.clone(); rightArm.position.x=0.63; g.add(rightArm);
-  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.26,1.0,0.26), new THREE.MeshStandardMaterial({ color: 0x334155 })); leftLeg.position.set(-0.2,0.48,0); g.add(leftLeg);
-  const rightLeg = leftLeg.clone(); rightLeg.position.x=0.2; g.add(rightLeg);
-  g.position.set(x,0,z); scene.add(g);
-  enemies.push({ mesh:g, tier, health:tier===1?24:tier===2?40:62, speed:tier===1?2.2:tier===2?2.8:3.4, damage:tier===1?6:tier===2?10:14, xp:tier===1?6:tier===2?12:20, damageCooldown:0 });
-}
-
-function onResize(){ camera.aspect = window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
-function onKeyDown(e){ const key = e.key.toLowerCase(); keys[key]=true; if(["1","2","3","4","5"].includes(key)){ hotbar.active=Number(key); updateHotbar(); applySelectedSlot(); } if(key==="e") tryInteract(); if(key==="q") useDash(); if(key==="r") useBurstSkill(); if(key==="f") useRecover(); if(key==="i") toggleInventory(); }
-function onKeyUp(e){ keys[e.key.toLowerCase()] = false; }
-function onMouseMove(e){ if(uiPanelOpen) return; mouseLook.yaw -= e.movementX*0.0022; mouseLook.pitch += e.movementY*0.0016; mouseLook.pitch = clamp(mouseLook.pitch,0.12,1.08); }
-function onMouseDown(e){ if(uiPanelOpen) return; if(e.button===0 && player.attackCooldown<=0) beginAttack(); }
-
-function beginAttack(){ if(hotbar.active===2 && (state.hasPickaxe||state.hasIronPickaxe)){ showMessage("Pickaxe equipped."); return; } player.attacking=true; player.attackTimer=0.28; player.attackCooldown=0.42; player.justHit.clear(); }
-function updatePlayer(dt){
-  if(uiPanelOpen) return;
-  for(const k of ["q","r","f"]) if(player.skillCooldowns[k]>0) player.skillCooldowns[k]-=dt;
-  const input = new THREE.Vector3(); if(keys["w"]) input.z-=1; if(keys["s"]) input.z+=1; if(keys["a"]) input.x-=1; if(keys["d"]) input.x+=1;
-  let desired = new THREE.Vector3();
-  if(input.lengthSq()>0){
-    input.normalize();
-    const forward = new THREE.Vector3(Math.sin(mouseLook.yaw),0,Math.cos(mouseLook.yaw));
-    const right = new THREE.Vector3(forward.z,0,-forward.x);
-    desired.addScaledVector(forward,-input.z); desired.addScaledVector(right,input.x); desired.normalize();
-    desired.multiplyScalar(keys["shift"] ? player.sprintSpeed : player.moveSpeed);
-    player.mesh.rotation.y = Math.atan2(desired.x, desired.z);
+  // Torso
+  const torsoGeo = new THREE.BoxGeometry(1, 1.5, 0.6);
+  const torso = new THREE.Mesh(torsoGeo, new THREE.MeshStandardMaterial({ color: bodyColor }));
+  torso.position.y = 1.1;
+  group.add(torso);
+  // Head
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), new THREE.MeshStandardMaterial({ color: 0xd7ccc8 }));
+  head.position.y = 2.1;
+  group.add(head);
+  // Arms
+  const armGeo = new THREE.CylinderGeometry(0.15, 0.15, 1.2, 8);
+  const armMat = new THREE.MeshStandardMaterial({ color: bodyColor });
+  const leftArm = new THREE.Mesh(armGeo, armMat);
+  const rightArm = new THREE.Mesh(armGeo, armMat);
+  leftArm.position.set(-0.8, 1.4, 0);
+  rightArm.position.set(0.8, 1.4, 0);
+  leftArm.rotation.z = Math.PI / 2;
+  rightArm.rotation.z = Math.PI / 2;
+  group.add(leftArm);
+  group.add(rightArm);
+  // Legs
+  const legGeo = new THREE.CylinderGeometry(0.17, 0.17, 1.5, 8);
+  const legMat = new THREE.MeshStandardMaterial({ color: bodyColor });
+  const leftLeg = new THREE.Mesh(legGeo, legMat);
+  const rightLeg = new THREE.Mesh(legGeo, legMat);
+  leftLeg.position.set(-0.3, 0.5, 0);
+  rightLeg.position.set(0.3, 0.5, 0);
+  group.add(leftLeg);
+  group.add(rightLeg);
+  // Weapon
+  let weapon;
+  if (classType === 'mage') {
+    // Staff
+    weapon = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.07, 0.07, 1.8, 6),
+      new THREE.MeshStandardMaterial({ color: 0x9575cd })
+    );
+    weapon.position.set(0.9, 1.1, 0);
+    weapon.rotation.z = Math.PI / 2;
+    group.add(weapon);
+  } else if (classType === 'beast') {
+    // Claws (two small blades)
+    weapon = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.1, 1.2),
+      new THREE.MeshStandardMaterial({ color: 0xffd54f })
+    );
+    weapon.position.set(1.0, 1.1, 0);
+    weapon.rotation.y = Math.PI / 2;
+    group.add(weapon);
+  } else {
+    // Demon uses a blood orb as weapon
+    weapon = new THREE.Mesh(
+      new THREE.SphereGeometry(0.3, 12, 12),
+      new THREE.MeshStandardMaterial({ color: 0xc62828 })
+    );
+    weapon.position.set(0.9, 1.2, 0);
+    group.add(weapon);
   }
-  player.velocity.lerp(desired,0.22);
-  const next = player.mesh.position.clone().addScaledVector(player.velocity,dt);
-  if(!intersectsBuilding(next)) player.mesh.position.copy(next);
-  else {
-    const xOnly = player.mesh.position.clone(); xOnly.x += player.velocity.x*dt; if(!intersectsBuilding(xOnly)) player.mesh.position.x = xOnly.x;
-    const zOnly = player.mesh.position.clone(); zOnly.z += player.velocity.z*dt; if(!intersectsBuilding(zOnly)) player.mesh.position.z = zOnly.z;
-  }
-  if(player.attackCooldown>0) player.attackCooldown -= dt;
-  if(player.attacking){
-    player.attackTimer -= dt;
-    player.weaponMesh.rotation.z = -1.4 + (0.28 - Math.max(player.attackTimer,0))*8.2;
-    if(player.attackTimer>0.08 && player.attackTimer<0.22) hitEnemies(state.weaponDamage);
-    if(player.attackTimer<=0){ player.attacking=false; player.weaponMesh.rotation.z=0.18; }
-  }
-  player.mesh.position.x = clamp(player.mesh.position.x,-220,220); player.mesh.position.z = clamp(player.mesh.position.z,-220,220);
-  updateArea(); updateCamera();
+  scene.add(group);
+  return {
+    mesh: group,
+    weapon: weapon,
+    health: 100,
+    maxHealth: 100,
+    speed: 0.12,
+    sprintMultiplier: 1.8,
+    attacking: false,
+    attackTime: 0,
+    attackCooldown: 0,
+    attackDamage: 20,
+  };
 }
-function updateArea(){
-  const p = player.mesh.position; let area = "Wilderness";
-  if(Math.abs(p.x)<55 && Math.abs(p.z)<65) area="Town";
-  if(p.z>135) area="Crystal Cavern";
-  if(area!==lastArea){ lastArea=area; document.getElementById("area-box").textContent="Area: "+area; alertArea(area); showMessage("Entered "+area+"."); }
-}
-function alertArea(name){ if(alertedAreas.has(name)) return; alertedAreas.add(name); alert("You discovered: " + name); }
-function updateCamera(){ const target = new THREE.Vector3(player.mesh.position.x, player.mesh.position.y+2.1, player.mesh.position.z); const offset = new THREE.Vector3(Math.sin(mouseLook.yaw)*Math.cos(mouseLook.pitch)*mouseLook.distance, Math.sin(mouseLook.pitch)*mouseLook.distance+1.3, Math.cos(mouseLook.yaw)*Math.cos(mouseLook.pitch)*mouseLook.distance); const desired = target.clone().add(offset); camera.position.lerp(desired,0.14); camera.lookAt(target); }
-function intersectsBuilding(pos){ const box = new THREE.Box3(new THREE.Vector3(pos.x-0.55,0,pos.z-0.55), new THREE.Vector3(pos.x+0.55,2.8,pos.z+0.55)); return collisionBoxes.some(b=>b.intersectsBox(box)); }
 
-function updateEnemies(dt){
-  for(let i=enemies.length-1;i>=0;i--){
-    const enemy = enemies[i];
-    const toPlayer = new THREE.Vector3().subVectors(player.mesh.position, enemy.mesh.position);
-    const dist = toPlayer.length();
-    if(dist<22 && !uiPanelOpen){ toPlayer.y=0; toPlayer.normalize(); enemy.mesh.position.addScaledVector(toPlayer, enemy.speed*dt); enemy.mesh.lookAt(player.mesh.position.x, enemy.mesh.position.y, player.mesh.position.z); }
-    if(enemy.damageCooldown>0) enemy.damageCooldown -= dt;
-    if(dist<1.55 && enemy.damageCooldown<=0){ state.health -= enemy.damage; enemy.damageCooldown = 1.0; showMessage("An enemy hit you."); if(state.health<=0){ state.health=state.maxHealth; player.mesh.position.set(0,0,0); showMessage("You were sent back to town."); } updateHUD(); }
-    if(enemy.health<=0){ scene.remove(enemy.mesh); enemies.splice(i,1); rewardForTier(enemy.tier); gainXP(enemy.xp); updateHUD(); respawnEnemy(enemy.tier); }
+// Main animation loop
+let lastTime = performance.now();
+function animate(time) {
+  requestAnimationFrame(animate);
+  const dt = (time - lastTime) / 1000;
+  lastTime = time;
+  update(dt);
+  renderer.render(scene, camera);
+}
+
+// Update logic per frame
+function update(dt) {
+  if (!player) return;
+  // Spawn new enemies occasionally; different spawn counts in town vs cave
+  const now = performance.now();
+  if (now - lastSpawnTime > 5000) {
+    if (!isInCave && enemies.length < 5) {
+      spawnEnemy();
+      lastSpawnTime = now;
+    }
+    if (isInCave && enemies.length < 8) {
+      spawnEnemy();
+      lastSpawnTime = now;
+    }
   }
-  updateEffects(dt);
-}
-function rewardForTier(tier){
-  if(tier===1){ state.money+=1; if(Math.random()<0.18){ state.iron+=1; discover("iron"); } if(Math.random()<0.10){ state.wood+=1; discover("wood"); } showMessage("Weak enemy defeated."); }
-  else if(tier===2){ state.money+=3; if(Math.random()<0.35){ state.iron+=1; discover("iron"); } if(Math.random()<0.25){ state.wood+=1; discover("wood"); } if(Math.random()<0.15){ state.cloth+=1; discover("cloth"); } showMessage("Mid enemy defeated."); }
-  else { state.money+=6; if(Math.random()<0.45){ state.iron+=2; discover("iron"); } if(Math.random()<0.25){ state.cloth+=1; discover("cloth"); } if(Math.random()<0.18){ state.crystal+=1; discover("crystal"); } showMessage("Strong enemy defeated."); }
-  updateQuestProgress(); updateInventoryUI();
-}
-function respawnEnemy(tier){ const radius = tier===1?78+Math.random()*18:tier===2?108+Math.random()*28:145+Math.random()*40; const a = Math.random()*Math.PI*2; spawnEnemy(Math.cos(a)*radius, Math.sin(a)*radius, tier); }
-function hitEnemies(dmg){ const p = new THREE.Vector3(); player.weaponMesh.getWorldPosition(p); for(const enemy of enemies){ if(player.justHit.has(enemy)) continue; if(p.distanceTo(enemy.mesh.position)<2.1){ enemy.health -= dmg; player.justHit.add(enemy); } } }
 
-function useDash(){ if(player.skillCooldowns.q>0 || uiPanelOpen) return; const f = new THREE.Vector3(Math.sin(mouseLook.yaw),0,Math.cos(mouseLook.yaw)); player.mesh.position.addScaledVector(f,-7); player.skillCooldowns.q=5; spawnPulse(player.mesh.position.clone(),0x60a5fa,0.6); showMessage("Dash used."); }
-function useBurstSkill(){ if(player.skillCooldowns.r>0 || uiPanelOpen) return; let color=0xf59e0b, bonus=8; if(selectedClass==="mage"){color=0x60a5fa; bonus=10;} if(selectedClass==="demon"){color=0xdc2626; bonus=12;} spawnPulse(player.mesh.position.clone(),color,0.95); for(const enemy of enemies){ if(player.mesh.position.distanceTo(enemy.mesh.position)<4.4) enemy.health -= state.weaponDamage + bonus; } player.skillCooldowns.r=8; showMessage("Burst skill used."); }
-function useRecover(){ if(player.skillCooldowns.f>0 || uiPanelOpen) return; state.health=Math.min(state.maxHealth,state.health+24); spawnPulse(player.mesh.position.clone(),0x22c55e,0.8); player.skillCooldowns.f=12; updateHUD(); showMessage("Recover used."); }
-function spawnPulse(pos,color,scale){ const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5,16,16), new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.45 })); mesh.position.copy(pos).setY(1.4); mesh.scale.set(scale,scale,scale); scene.add(mesh); effects.push({ mesh, life:0.45, grow:4.5 }); }
-function updateEffects(dt){ for(let i=effects.length-1;i>=0;i--){ const fx=effects[i]; fx.life-=dt; fx.mesh.scale.addScalar(fx.grow*dt); fx.mesh.material.opacity=Math.max(0,fx.life); if(fx.life<=0){ scene.remove(fx.mesh); effects.splice(i,1); } } }
-function gainXP(amount){ state.xp += amount; while(state.xp>=state.xpNext){ state.xp -= state.xpNext; state.level += 1; state.skillPoints += 2; state.xpNext = Math.floor(state.xpNext*1.35); state.maxHealth += 6; state.health = state.maxHealth; showMessage("Level up! You reached level "+state.level+"."); } }
+  // Update player movement
+  updateMovement(dt);
 
-function tryInteract(){
-  const p = player.mesh.position;
-  if(caveEntrance && p.distanceTo(caveEntrance)<7){ openPanel("Crystal Cave","Choose where to go.",[{label:"Enter Cave",action:()=>{ player.mesh.position.set(0,0,145); closePanel(); alertArea("Crystal Cavern"); showMessage("You entered the Crystal Cavern."); }},{label:"Leave",action:()=>closePanel()}]); return; }
-  for(const door of doors){ if(p.distanceTo(door.position)<3.2){ openDoorMenu(door); return; } }
-  for(const npc of npcs){
-    if(p.distanceTo(npc.mesh.position)<3.3){
-      if(npc.role==="quest"){
-        if(!state.questAccepted){ state.questAccepted=true; state.hasPickaxe=true; hotbar.slots[2]="Pickaxe"; document.getElementById("quest-text").textContent="Mine 5 iron ore outside the town."; showMessage("Quest accepted. You received a pickaxe."); updateHotbar(); }
-        else if(!state.questComplete) showMessage("Bring me 5 iron ore.");
-        else showMessage("Craft an iron pickaxe at the forge to mine crystal.");
-        updateHUD(); updateInventoryUI(); return;
+  // Update attack animation and cooldown
+  updateAttack(dt);
+
+  // Update enemies
+  updateEnemies(dt);
+
+  // Update XP and level (UI update in updateUI)
+  updateUI();
+}
+
+// Handle player movement and camera follow
+function updateMovement(dt) {
+  const dir = new THREE.Vector3();
+  if (keys['w']) dir.z -= 1;
+  if (keys['s']) dir.z += 1;
+  if (keys['a']) dir.x -= 1;
+  if (keys['d']) dir.x += 1;
+  if (dir.lengthSq() > 0) {
+    dir.normalize();
+    let speed = player.speed;
+    if (keys['shift']) speed *= player.sprintMultiplier;
+    player.mesh.position.add(dir.multiplyScalar(speed));
+    // Collision: keep within bounds of town when not in cave
+    if (!isInCave) {
+      // Basic bound check to prevent leaving town area except through cave entrance
+      const x = player.mesh.position.x;
+      const z = player.mesh.position.z;
+      const max = 55;
+      if (x > max) player.mesh.position.x = max;
+      if (x < -max) player.mesh.position.x = -max;
+      if (z < -max) player.mesh.position.z = -max;
+    }
+  }
+  // Camera follows player smoothly
+  const camTarget = new THREE.Vector3(player.mesh.position.x, player.mesh.position.y + 2, player.mesh.position.z + 8);
+  camera.position.lerp(camTarget, 0.1);
+  camera.lookAt(player.mesh.position.x, player.mesh.position.y + 1, player.mesh.position.z);
+}
+
+// Attack handling: start attack on mouse down
+function beginAttack() {
+  if (player.attacking || player.attackCooldown > 0) return;
+  player.attacking = true;
+  player.attackTime = 0;
+  player.attackCooldown = 0.6; // global cooldown between attacks
+}
+
+function updateAttack(dt) {
+  if (player.attackCooldown > 0) {
+    player.attackCooldown -= dt;
+  }
+  if (!player.attacking) return;
+  player.attackTime += dt;
+  // Attack animation: rotate weapon on Z axis for swing; detect hit window
+  const swingDuration = 0.4;
+  const progress = player.attackTime / swingDuration;
+  // Swing arc: from -1 rad to 1 rad
+  const angle = -1 + 2 * progress;
+  if (player.weapon) {
+    player.weapon.rotation.z = angle;
+  }
+  // Hit window between 0.3 and 0.6 of the swing
+  if (progress >= 0.3 && progress <= 0.6) {
+    // Hit enemies in range
+    enemies.forEach((enemy) => {
+      const dist = enemy.mesh.position.distanceTo(player.mesh.position);
+      if (!enemy.hit && dist < 2.0) {
+        enemy.health -= player.attackDamage;
+        // Knockback
+        const knock = new THREE.Vector3().subVectors(enemy.mesh.position, player.mesh.position).normalize().multiplyScalar(0.5);
+        enemy.mesh.position.add(knock);
+        enemy.hit = true;
+        if (enemy.health <= 0) {
+          handleEnemyDeath(enemy);
+        }
       }
-      if(npc.role==="merchant"){ openShop(); return; }
-      if(npc.role==="forge"){ useForge(); return; }
-    }
+    });
   }
-  for(const ore of ores){
-    if(ore.mined) continue;
-    if(p.distanceTo(ore.mesh.position)<2.8){
-      if(!state.hasPickaxe && !state.hasIronPickaxe){ showMessage("You need a pickaxe first."); return; }
-      if(hotbar.active!==2){ showMessage("Equip the pickaxe in slot 2."); return; }
-      ore.mined=true; scene.remove(ore.mesh); state.iron+=1; discover("iron"); updateQuestProgress(); updateHUD(); updateInventoryUI(); showMessage("You mined iron."); return;
-    }
+  // End of attack
+  if (player.attackTime >= swingDuration) {
+    player.attacking = false;
+    player.attackTime = 0;
+    // Reset weapon rotation
+    if (player.weapon) player.weapon.rotation.z = 0;
+    // Reset hit flag on enemies for next attack
+    enemies.forEach((e) => (e.hit = false));
   }
-  for(const ore of caveOres){
-    if(ore.mined) continue;
-    if(p.distanceTo(ore.mesh.position)<2.8){
-      if(!state.hasIronPickaxe){ showMessage("You need an Iron Pickaxe to mine crystal."); return; }
-      if(hotbar.active!==2){ showMessage("Equip the pickaxe in slot 2."); return; }
-      ore.mined=true; scene.remove(ore.mesh); state.crystal+=1; discover("crystal"); updateHUD(); updateInventoryUI(); showMessage("You mined crystal."); return;
-    }
-  }
-  showMessage("Nothing to interact with.");
 }
-function discover(name){ if(!state.discovered[name]){ state.discovered[name]=true; showMessage("Discovered "+name.charAt(0).toUpperCase()+name.slice(1)+"."); } }
 
-function openDoorMenu(door){
-  if(door.role==="weapon"){ openPanel("Weapons Shop","You enter the weapons shop.",[{label:"Talk to Weapons Dealer",action:()=>{ closePanel(); openShop(); }},{label:"Leave",action:()=>closePanel()}]); return; }
-  if(door.role==="forge"){ openPanel("Forge","Forge weapons and tools here.",[{label:"Forge Iron Sword (5 Iron)",action:()=>forgeIronSword()},{label:"Forge Iron Pickaxe (3 Iron)",action:()=>forgeIronPickaxe()},{label:"Forge Steel Sword (8 Iron, 2 Crystal)",action:()=>forgeSteelSword()},{label:"Craft Armor Plate (4 Iron, 1 Cloth)",action:()=>craftArmorPlate()},{label:"Leave",action:()=>closePanel()}]); return; }
-  if(door.role==="workshop"){ openPanel("Workshop","Craft support items here.",[{label:"Craft Health Kit (2 Cloth, 1 Wood)",action:()=>craftHealthKit()},{label:"Craft Bow Kit (3 Wood, 1 Cloth)",action:()=>craftBowKit()},{label:"Leave",action:()=>closePanel()}]); return; }
-  if(door.role==="supplies"){ openPanel("Supplies","Choose what you want.",[{label:"Buy Health Kit - 15",action:()=>buyHealthKit()},{label:"Leave",action:()=>closePanel()}]); return; }
-  if(door.role==="inn"){ openPanel("Inn","Choose what you want.",[{label:"Rest",action:()=>restAtInn()},{label:"Leave",action:()=>closePanel()}]); return; }
-  if(door.role==="townhall"){ openPanel("Town Hall","Town hall menu.",[{label:"Read Notice Board",action:()=>showTownNotice()},{label:"Leave",action:()=>closePanel()}]); return; }
-  openPanel(door.label,"This building will be expanded later.",[{label:"Leave",action:()=>closePanel()}]);
+// Spawn enemy at random position around town or in cave
+function spawnEnemy() {
+  const enemy = {};
+  const geom = new THREE.BoxGeometry(0.8, 1.6, 0.8);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x33691e });
+  const mesh = new THREE.Mesh(geom, mat);
+  // Determine spawn position: if in cave, spawn near origin; else around town edges
+  let x, z;
+  if (isInCave) {
+    x = (Math.random() - 0.5) * 20;
+    z = (Math.random() - 0.5) * 20;
+  } else {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 40 + Math.random() * 10;
+    x = Math.cos(angle) * dist;
+    z = Math.sin(angle) * dist;
+  }
+  mesh.position.set(x, 0.8, z);
+  scene.add(mesh);
+  enemy.mesh = mesh;
+  enemy.health = isInCave ? 60 : 40;
+  enemies.push(enemy);
 }
-function openShop(){ openPanel("Weapons","Choose a weapon to buy.",[{label:"Hunter Spear - 35",action:()=>buyItem("Hunter Spear",35,14)},{label:"Mage Staff - 45",action:()=>buyItem("Mage Staff",45,16)},{label:"Katana - 50",action:()=>buyItem("Katana",50,18,true)},{label:"Battle Axe - 60",action:()=>buyItem("Battle Axe",60,21)},{label:"Demon Blade - 75",action:()=>buyItem("Demon Blade",75,25)}]); }
-function buyItem(name,cost,damage,katana=false){ if(state.money<cost){ showMessage("Not enough money."); closePanel(); return; } state.money-=cost; state.weapon=name; state.weaponDamage=damage; hotbar.slots[1]=name; if(katana){ state.ownsKatana=true; hotbar.slots[3]="Katana"; } updateHUD(); updateHotbar(); updateInventoryUI(); showMessage("Purchased "+name+"."); closePanel(); }
-function forgeIronSword(){ if(state.iron<5){ showMessage("Not enough iron."); closePanel(); return; } state.iron-=5; state.weapon="Iron Sword"; state.weaponDamage=15; hotbar.slots[1]="Iron Sword"; updateHUD(); updateHotbar(); updateInventoryUI(); showMessage("You forged an Iron Sword."); closePanel(); }
-function forgeIronPickaxe(){ if(state.iron<3){ showMessage("Need 3 iron."); closePanel(); return; } state.iron-=3; state.hasIronPickaxe=true; state.hasPickaxe=false; hotbar.slots[2]="Iron Pickaxe"; updateHUD(); updateHotbar(); updateInventoryUI(); showMessage("You forged an Iron Pickaxe."); closePanel(); }
-function forgeSteelSword(){ if(state.iron<8||state.crystal<2){ showMessage("Need 8 iron and 2 crystal."); closePanel(); return; } state.iron-=8; state.crystal-=2; state.weapon="Steel Sword"; state.weaponDamage=22; hotbar.slots[1]="Steel Sword"; updateHUD(); updateHotbar(); updateInventoryUI(); showMessage("You forged a Steel Sword."); closePanel(); }
-function craftArmorPlate(){ if(state.iron<4||state.cloth<1){ showMessage("Need 4 iron and 1 cloth."); closePanel(); return; } state.iron-=4; state.cloth-=1; state.maxHealth+=10; state.health=Math.min(state.health+10,state.maxHealth); updateHUD(); updateInventoryUI(); showMessage("You crafted armor and gained +10 max health."); closePanel(); }
-function craftHealthKit(){ if(state.cloth<2||state.wood<1){ showMessage("Need 2 cloth and 1 wood."); closePanel(); return; } state.cloth-=2; state.wood-=1; state.health=Math.min(state.maxHealth,state.health+30); updateHUD(); updateInventoryUI(); showMessage("You crafted and used a health kit."); closePanel(); }
-function craftBowKit(){ if(state.wood<3||state.cloth<1){ showMessage("Need 3 wood and 1 cloth."); closePanel(); return; } state.wood-=3; state.cloth-=1; hotbar.slots[4]="Bow Kit"; updateHUD(); updateHotbar(); updateInventoryUI(); showMessage("You crafted a Bow Kit."); closePanel(); }
-function buyHealthKit(){ if(state.money<15){ showMessage("Not enough money."); closePanel(); return; } state.money-=15; state.health=Math.min(state.maxHealth,state.health+25); updateHUD(); updateInventoryUI(); showMessage("You used a health kit."); closePanel(); }
-function restAtInn(){ state.health=state.maxHealth; updateHUD(); showMessage("You feel rested."); closePanel(); }
-function showTownNotice(){ showMessage("Future update: defeat the boss to reach the second town."); closePanel(); }
-function updateQuestProgress(){ if(state.questAccepted && !state.questComplete && state.iron>=5){ state.questComplete=true; document.getElementById("quest-text").textContent="You have enough ore. Visit the forge."; showMessage("Quest complete. Visit the forge."); } }
-function useForge(){ openDoorMenu({ role:"forge" }); }
 
-function applySelectedSlot(){
-  const item = hotbar.slots[hotbar.active];
-  if(hotbar.active===2 && (state.hasPickaxe||state.hasIronPickaxe)){ player.pickaxeMesh.visible=true; player.weaponMesh.visible=false; state.weapon=hotbar.slots[2]; }
-  else { player.pickaxeMesh.visible=false; player.weaponMesh.visible=true; if(hotbar.active===3 && state.ownsKatana){ state.weapon="Katana"; state.weaponDamage=18; } else if(item==="Iron Sword"){ state.weapon="Iron Sword"; state.weaponDamage=15; } else if(item==="Steel Sword"){ state.weapon="Steel Sword"; state.weaponDamage=22; } else if(item!=="Empty"){ state.weapon=item; } }
-  updateHUD();
+// Spawn a boss in the cave. The boss is a large enemy with high health.
+function spawnBoss() {
+  const boss = {};
+  // Big geometry
+  const geom = new THREE.BoxGeometry(2.5, 5, 2.5);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x880e4f });
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.position.set(0, 2.5, 30);
+  scene.add(mesh);
+  boss.mesh = mesh;
+  boss.health = 400;
+  boss.boss = true;
+  enemies.push(boss);
 }
-function updateHUD(){
-  document.getElementById("money").textContent="$"+state.money;
-  document.getElementById("weapon").textContent="Weapon: "+state.weapon;
-  document.getElementById("materials").textContent="Iron: "+state.iron+" · Wood: "+state.wood+" · Cloth: "+state.cloth+" · Crystal: "+state.crystal;
-  document.getElementById("health-fill").style.width=((Math.max(0,state.health)/state.maxHealth)*100)+"%";
-  document.getElementById("level-box").textContent="Level "+state.level+" · XP "+state.xp+" / "+state.xpNext+" · Skill Points "+state.skillPoints;
-  document.getElementById("skills-box").textContent="Q Dash ("+Math.max(0,Math.ceil(player?.skillCooldowns.q||0))+") · R Burst ("+Math.max(0,Math.ceil(player?.skillCooldowns.r||0))+") · F Recover ("+Math.max(0,Math.ceil(player?.skillCooldowns.f||0))+")";
+
+// Update enemies: simple AI to chase player
+function updateEnemies(dt) {
+  enemies = enemies.filter((enemy) => {
+    if (!enemy.mesh) return false;
+    // Enemy chases player
+    const dir = new THREE.Vector3().subVectors(player.mesh.position, enemy.mesh.position);
+    const distance = dir.length();
+    if (distance > 0.1) {
+      dir.normalize();
+      enemy.mesh.position.add(dir.multiplyScalar(0.06));
+    }
+    return true;
+  });
 }
-function updateHotbar(){ for(let i=1;i<=5;i++){ const slot=document.getElementById("slot-"+i); slot.classList.toggle("active",hotbar.active===i); slot.querySelector(".slot-label").textContent=hotbar.slots[i]; } }
-function updateInventoryUI(){
-  const items=document.getElementById("inventory-items"), stats=document.getElementById("inventory-stats"), skills=document.getElementById("skill-buttons");
-  items.innerHTML="";
-  const discoveredList = [["Iron",state.iron,state.discovered.iron],["Wood",state.wood,state.discovered.wood],["Cloth",state.cloth,state.discovered.cloth],["Crystal",state.crystal,state.discovered.crystal]];
-  discoveredList.forEach(([name,count,seen])=>{ const div=document.createElement("div"); div.className="inventory-item"; div.textContent=seen ? name+": "+count : name+": Not discovered"; items.appendChild(div); });
-  stats.innerHTML="";
-  [["Health",state.maxHealth],["Weapon Damage",state.weaponDamage],["Level",state.level],["Skill Points",state.skillPoints]].forEach(([k,v])=>{ const div=document.createElement("div"); div.className="stat-row"; div.textContent=k+": "+v; stats.appendChild(div); });
-  skills.innerHTML="";
-  [["Health +10","health"],["Melee +2","melee"],["Magic +2","magic"]].forEach(([label,key])=>{ const btn=document.createElement("button"); btn.textContent=label; btn.onclick=()=>spendPoint(key); btn.disabled=state.skillPoints<=0; skills.appendChild(btn); });
+
+// Handle enemy death: remove from scene, grant rewards
+function handleEnemyDeath(enemy) {
+  scene.remove(enemy.mesh);
+  const index = enemies.indexOf(enemy);
+  if (index !== -1) enemies.splice(index, 1);
+  money += isInCave ? 3 : 1;
+  xp += isInCave ? 50 : 20;
+  // Rare drop: iron or crystal
+  const dropChance = Math.random();
+  if (!isInCave && dropChance < 0.4) {
+    inventory.iron++;
+    showAlert('Found iron ore');
+  }
+  if (isInCave && dropChance < 0.5) {
+    inventory.crystal++;
+    showAlert('Found crystal');
+  }
+
+  // If killed a boss, unlock second town and exit cave
+  if (enemy.boss) {
+    bossSpawned = false;
+    secondTownUnlocked = true;
+    showAlert('Boss defeated! Second town unlocked');
+    // Immediately exit cave and rebuild town to include second town
+    exitCave();
+    buildTown();
+  }
 }
-function spendPoint(type){
-  if(state.skillPoints<=0) return;
-  state.skillPoints--;
-  if(type==="health"){ state.maxHealth+=10; state.health+=10; }
-  if(type==="melee"){ state.weaponDamage+=2; }
-  if(type==="magic"){ state.weaponDamage+=2; player.skillCooldowns.f=Math.max(0, player.skillCooldowns.f-1); }
-  updateHUD(); updateInventoryUI(); showMessage("Spent 1 skill point on "+type+".");
+
+// UI update: health, XP, level, money
+function updateUI() {
+  // Health bar
+  const healthPerc = player.health / player.maxHealth;
+  healthFill.style.width = `${Math.max(0, Math.min(1, healthPerc)) * 100}%`;
+  // XP bar
+  const xpPerc = xp / xpToNext;
+  xpFill.style.width = `${Math.max(0, Math.min(1, xpPerc)) * 100}%`;
+  // Level
+  levelValue.textContent = level;
+  // Money
+  moneyDisplay.textContent = `$${money}`;
+  // Level up if xp reached
+  if (xp >= xpToNext) {
+    xp -= xpToNext;
+    level++;
+    xpToNext = Math.floor(xpToNext * 1.3);
+    player.maxHealth += 20;
+    player.health = player.maxHealth;
+    player.attackDamage += 5;
+    showAlert(`Level up! Level ${level}`);
+  }
 }
-function toggleInventory(force){
-  const panel=document.getElementById("inventory");
-  const open = typeof force==="boolean" ? force : panel.classList.contains("hidden");
-  if(open){ panel.classList.remove("hidden"); uiPanelOpen=true; updateInventoryUI(); }
-  else { panel.classList.add("hidden"); uiPanelOpen=false; }
+
+// Toggle inventory overlay
+function toggleInventory() {
+  if (inventoryOverlay.classList.contains('hidden')) {
+    // Populate list
+    inventoryList.innerHTML = '';
+    if (inventory.pickaxe) {
+      const li = document.createElement('li');
+      li.textContent = 'Iron Pickaxe';
+      inventoryList.appendChild(li);
+    }
+    if (inventory.weapons.length > 0) {
+      inventory.weapons.forEach((w) => {
+        const li = document.createElement('li');
+        li.textContent = w;
+        inventoryList.appendChild(li);
+      });
+    }
+    if (inventory.iron > 0) {
+      const li = document.createElement('li');
+      li.textContent = `Iron: ${inventory.iron}`;
+      inventoryList.appendChild(li);
+    }
+    if (inventory.crystal > 0) {
+      const li = document.createElement('li');
+      li.textContent = `Crystal: ${inventory.crystal}`;
+      inventoryList.appendChild(li);
+    }
+    if (inventoryList.children.length === 0) {
+      const li = document.createElement('li');
+      li.textContent = 'Empty';
+      inventoryList.appendChild(li);
+    }
+    inventoryOverlay.classList.remove('hidden');
+  } else {
+    inventoryOverlay.classList.add('hidden');
+  }
 }
-function showMessage(text){ document.getElementById("message-box").textContent=text; }
-function openPanel(title,text,buttons){ uiPanelOpen=true; document.getElementById("panel-title").textContent=title; document.getElementById("panel-text").textContent=text; const wrap=document.getElementById("panel-buttons"); wrap.innerHTML=""; buttons.forEach(item=>{ const btn=document.createElement("button"); btn.textContent=item.label; btn.onclick=item.action; wrap.appendChild(btn); }); document.getElementById("panel").classList.remove("hidden"); }
-function closePanel(){ uiPanelOpen=false; document.getElementById("panel").classList.add("hidden"); }
-function animate(){ requestAnimationFrame(animate); const dt=Math.min(clock.getDelta(),0.05); updatePlayer(dt); updateEnemies(dt); updateHUD(); renderer.render(scene,camera); }
-function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+// Interact with objects: open shop, forge, quest, etc.
+function handleInteract() {
+  // Check proximity to buildings or objects
+  const pos = player.mesh.position;
+  let interactionHandled = false;
+  townObjects.forEach((obj) => {
+    const name = obj.name || '';
+    if (name === 'caveEntrance') return;
+    const dist = obj.position.distanceTo(pos);
+    if (dist < 4) {
+      // Determine based on sign label behind building
+      // We'll examine sign label from mesh children (not trivial). For now, approximate by position.
+      if (Math.abs(obj.position.x + 20) < 1 && Math.abs(obj.position.z) < 1) {
+        // Forge building at (-20,0)
+        openForgeMenu();
+        interactionHandled = true;
+      } else if (Math.abs(obj.position.x - 20) < 1 && Math.abs(obj.position.z) < 1) {
+        // Weapons building at (20,0)
+        openWeaponShop();
+        interactionHandled = true;
+      } else if (Math.abs(obj.position.x) < 1 && Math.abs(obj.position.z + 20) < 1) {
+        // Supplies building at (0,-20)
+        openSuppliesShop();
+        interactionHandled = true;
+      }
+    }
+  });
+  if (!interactionHandled) {
+    // check if near cave entrance and call automatically?
+  }
+}
+
+function openForgeMenu() {
+  const options = [];
+  // Iron pickaxe requires 3 iron
+  if (!inventory.pickaxe && inventory.iron >= 3) {
+    options.push('Craft Iron Pickaxe (3 Iron)');
+  }
+  // Craft iron sword if not have
+  if (inventory.iron >= 2) {
+    options.push('Craft Iron Sword (2 Iron)');
+  }
+  if (options.length === 0) {
+    alert('Forge: You do not have enough materials');
+    return;
+  }
+  const choice = prompt('Forge:\n' + options.map((o, i) => `${i + 1}. ${o}`).join('\n'));
+  const iChoice = parseInt(choice);
+  if (!iChoice || iChoice < 1 || iChoice > options.length) return;
+  const selected = options[iChoice - 1];
+  if (selected.startsWith('Craft Iron Pickaxe')) {
+    inventory.iron -= 3;
+    inventory.pickaxe = true;
+    showAlert('Forged an iron pickaxe!');
+  } else if (selected.startsWith('Craft Iron Sword')) {
+    inventory.iron -= 2;
+    inventory.weapons.push('Iron Sword');
+    showAlert('Forged an iron sword!');
+  }
+}
+
+function openWeaponShop() {
+  const items = [
+    { name: 'Rusty Sword', price: 10 },
+    { name: 'Katana', price: 50 },
+    { name: 'Steel Sword', price: 80 },
+  ];
+  const choice = prompt('Weapon Shop:\n' + items.map((it, i) => `${i + 1}. ${it.name} ($${it.price})`).join('\n'));
+  const iChoice = parseInt(choice);
+  if (!iChoice || iChoice < 1 || iChoice > items.length) return;
+  const selected = items[iChoice - 1];
+  if (money >= selected.price) {
+    money -= selected.price;
+    inventory.weapons.push(selected.name);
+    showAlert(`Purchased ${selected.name}`);
+  } else {
+    alert('Not enough money');
+  }
+}
+
+function openSuppliesShop() {
+  const items = [
+    { name: 'Health Potion', price: 5 },
+    { name: 'Mana Potion', price: 5 },
+  ];
+  const choice = prompt('Supplies Shop:\n' + items.map((it, i) => `${i + 1}. ${it.name} ($${it.price})`).join('\n'));
+  const iChoice = parseInt(choice);
+  if (!iChoice || iChoice < 1 || iChoice > items.length) return;
+  const selected = items[iChoice - 1];
+  if (money >= selected.price) {
+    money -= selected.price;
+    if (selected.name === 'Health Potion') {
+      player.health = Math.min(player.maxHealth, player.health + 30);
+      showAlert('Drank health potion');
+    }
+    // Additional potions can be added later
+  } else {
+    alert('Not enough money');
+  }
+}
+
+// Handle cave toggle: enter or exit
+function handleCaveToggle() {
+  const entrance = townObjects.find((obj) => obj.name === 'caveEntrance');
+  if (!entrance) return;
+  const dist = entrance.position.distanceTo(player.mesh.position);
+  if (dist < 6) {
+    if (!isInCave) {
+      enterCave();
+    } else {
+      exitCave();
+    }
+  }
+}
+
+function enterCave() {
+  isInCave = true;
+  showAlert('Entered Crystal Cavern');
+  // Remove town objects except ground (we keep them but make them invisible)
+  townObjects.forEach((obj) => (obj.visible = false));
+  // Darker background and fog
+  scene.background = new THREE.Color(0x050507);
+  scene.fog = new THREE.Fog(0x000000, 5, 50);
+  // Build cave group
+  caveGroup = new THREE.Group();
+  // Floor
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x232323 }));
+  floor.rotation.x = -Math.PI / 2;
+  caveGroup.add(floor);
+  // Walls around cave
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x303030 });
+  for (let i = 0; i < 4; i++) {
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(60, 12), wallMat);
+    wall.position.set(0, 6, 30);
+    wall.rotation.y = i * Math.PI / 2;
+    caveGroup.add(wall);
+  }
+  // Ceiling
+  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x1a1a1a }));
+  ceiling.position.y = 12;
+  ceiling.rotation.x = Math.PI / 2;
+  caveGroup.add(ceiling);
+  // Crystal nodes
+  for (let i = 0; i < 10; i++) {
+    const crystal = new THREE.Mesh(
+      new THREE.ConeGeometry(0.4 + Math.random() * 0.4, 1.5 + Math.random(), 6),
+      new THREE.MeshStandardMaterial({ color: 0x00bcd4 })
+    );
+    crystal.position.set((Math.random() - 0.5) * 40, 0.8, (Math.random() - 0.5) * 40);
+    caveGroup.add(crystal);
+    // Name to identify as mineable
+    crystal.userData = { type: 'crystal' };
+  }
+  scene.add(caveGroup);
+  // Position player at cave entrance
+  player.mesh.position.set(0, 0, 0);
+  enemies.forEach((enemy) => {
+    scene.remove(enemy.mesh);
+  });
+  enemies = [];
+
+  // Spawn boss if not already spawned
+  if (!bossSpawned) {
+    spawnBoss();
+    bossSpawned = true;
+  }
+}
+
+function exitCave() {
+  isInCave = false;
+  showAlert('Returned to Town');
+  // Remove cave group
+  if (caveGroup) {
+    caveGroup.children.forEach((child) => {
+      child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
+    scene.remove(caveGroup);
+    caveGroup = null;
+  }
+  scene.background = new THREE.Color(0x202030);
+  scene.fog = null;
+  // Show town objects
+  townObjects.forEach((obj) => (obj.visible = true));
+  // Reposition player near cave entrance outside
+  player.mesh.position.set(0, 0, 34);
+  enemies.forEach((enemy) => {
+    scene.remove(enemy.mesh);
+  });
+  enemies = [];
+}
+
+// Show an on-screen alert message for a short time
+function showAlert(message) {
+  if (!alertBox) return;
+  alertBox.textContent = message;
+  alertBox.classList.remove('hidden');
+  setTimeout(() => {
+    alertBox.classList.add('hidden');
+  }, 2000);
+}
